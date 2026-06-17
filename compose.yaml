@@ -2,10 +2,10 @@ services:
   wire-pod:
     container_name: wire-pod
     hostname: escapepod
+    image: squire-pod:face-gate
     build:
       context: .
       dockerfile: dockerfile
-    image: ghcr.io/kercre123/wire-pod:main
     restart: unless-stopped
     environment:
       WIREPOD_DATA_DIR: /data
@@ -15,17 +15,12 @@ services:
       - "8080:8080"
       - "8084:8084"
     volumes:
-      - wire-pod-data:/data
-      - wire-pod-images:/images
+      - ./wire-pod-data:/data
+      - ./wire-pod-images:/images
+      - ./wire-pod-productivity-images:/opt/wire-pod/chipper/productivity-images
     healthcheck:
       test: [ "CMD", "curl", "-fsS", "http://localhost:8080/ok" ]
       interval: 30s
       timeout: 5s
       retries: 5
       start_period: 30s
-
-volumes:
-  wire-pod-data:
-    driver: local
-  wire-pod-images:
-    driver: local

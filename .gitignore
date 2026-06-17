@@ -41,3 +41,8 @@
 /whisper.cpp
 .DS_Store
 /chipper/openaiChats.json
+/wire-pod-data
+/wire-pod-images
+/wire-pod-productivity-images
+/chipper/.gocache
+/chipper/.gomodcache

@@ -1,3 +1,4 @@
+.git
 .github
 .idea
 .vscode
@@ -26,3 +27,8 @@ chipper/pico.key
 chipper/useepod
 chipper/source.sh
 .env
+/wire-pod-data
+/wire-pod-images
+/wire-pod-productivity-images
+/chipper/.gocache
+/chipper/.gomodcache
