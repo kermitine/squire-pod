@@ -52,7 +52,7 @@ if [[ "${UNAME}" == *"x86_64"* ]]; then
     echo "aarch64 architecture confirmed."
     elif [[ "${UNAME}" == *"armv7l"* ]]; then
     ARCH="armv7l"
-    echo "armv7l (32-bit) WARN: The Coqui and VOSK bindings are broken for this platform at the moment, so please choose Picovoice when the script asks. wire-pod is designed for 64-bit systems."
+    echo "armv7l (32-bit) WARN: The Coqui and VOSK bindings are broken for this platform at the moment, so please choose Picovoice when the script asks. Rocket Pod is designed for 64-bit systems."
     STT=""
 else
     echo "Your CPU architecture not supported. This script currently supports x86_64, aarch64, and armv7l."
@@ -65,7 +65,7 @@ if [[ $EUID -ne 0 ]]; then
 fi
 
 if [[ ! -d ./chipper ]]; then
-    echo "Script is not running in the wire-pod/ directory or chipper folder is missing. Exiting."
+    echo "Script is not running in the rocket-pod/ directory or chipper folder is missing. Exiting."
     exit 1
 fi
 
@@ -546,23 +546,23 @@ function setupSystemd() {
         exit 1
     fi
     source ./chipper/source.sh
-    echo "[Unit]" >wire-pod.service
-    echo "Description=Wire Escape Pod (coqui)" >>wire-pod.service
-    echo "Wants=network.target" >>wire-pod.service
-    echo "After=network.target" >>wire-pod.service
-    echo "StartLimitIntervalSec=500" >>wire-pod.service
-    echo "StartLimitBurst=5" >>wire-pod.service
-    echo >>wire-pod.service
-    echo "[Service]" >>wire-pod.service
-    echo "Type=simple" >>wire-pod.service
-    echo "Restart=on-failure" >>wire-pod.service
-    echo "RestartSec=5s" >>wire-pod.service
-    echo "WorkingDirectory=$(readlink -f ./chipper)" >>wire-pod.service
-    echo "ExecStart=$(readlink -f ./chipper/start.sh)" >>wire-pod.service
-    echo >>wire-pod.service
-    echo "[Install]" >>wire-pod.service
-    echo "WantedBy=multi-user.target" >>wire-pod.service
-    cat wire-pod.service
+    echo "[Unit]" >rocket-pod.service
+    echo "Description=Rocket Pod (coqui)" >>rocket-pod.service
+    echo "Wants=network.target" >>rocket-pod.service
+    echo "After=network.target" >>rocket-pod.service
+    echo "StartLimitIntervalSec=500" >>rocket-pod.service
+    echo "StartLimitBurst=5" >>rocket-pod.service
+    echo >>rocket-pod.service
+    echo "[Service]" >>rocket-pod.service
+    echo "Type=simple" >>rocket-pod.service
+    echo "Restart=on-failure" >>rocket-pod.service
+    echo "RestartSec=5s" >>rocket-pod.service
+    echo "WorkingDirectory=$(readlink -f ./chipper)" >>rocket-pod.service
+    echo "ExecStart=$(readlink -f ./chipper/start.sh)" >>rocket-pod.service
+    echo >>rocket-pod.service
+    echo "[Install]" >>rocket-pod.service
+    echo "WantedBy=multi-user.target" >>rocket-pod.service
+    cat rocket-pod.service
     echo
     cd chipper
     export GOTAGS="nolibopusfile"
@@ -572,17 +572,17 @@ function setupSystemd() {
     COMMIT_HASH="$(git rev-parse --short HEAD)"
     export GOLDFLAGS="-X 'github.com/kercre123/wire-pod/chipper/pkg/vars.CommitSHA=${COMMIT_HASH}'"
     if [[ ${STT_SERVICE} == "leopard" ]]; then
-        echo "wire-pod.service created, building chipper with Picovoice STT service..."
+        echo "rocket-pod.service created, building chipper with Picovoice STT service..."
         /usr/local/go/bin/go build -tags $GOTAGS -ldflags="${GOLDFLAGS}" cmd/leopard/main.go
         elif [[ ${STT_SERVICE} == "vosk" ]]; then
-        echo "wire-pod.service created, building chipper with VOSK STT service..."
+        echo "rocket-pod.service created, building chipper with VOSK STT service..."
         export CGO_ENABLED=1
         export CGO_CFLAGS="-I/root/.vosk/libvosk"
         export CGO_LDFLAGS="-L /root/.vosk/libvosk -lvosk -ldl -lpthread"
         export LD_LIBRARY_PATH="/root/.vosk/libvosk:$LD_LIBRARY_PATH"
         /usr/local/go/bin/go build -tags $GOTAGS -ldflags="${GOLDFLAGS}" cmd/vosk/main.go
         elif [[ ${STT_SERVICE} == "whisper.cpp" ]]; then
-        echo "wire-pod.service created, building chipper with Whisper.CPP STT service..."
+        echo "rocket-pod.service created, building chipper with Whisper.CPP STT service..."
         export CGO_ENABLED=1
         export C_INCLUDE_PATH="../whisper.cpp"
         export LIBRARY_PATH="../whisper.cpp"
@@ -591,7 +591,7 @@ function setupSystemd() {
         export CGO_CFLAGS="-I$(pwd)/../whisper.cpp"
         /usr/local/go/bin/go build -tags $GOTAGS -ldflags="${GOLDFLAGS}" cmd/experimental/whisper.cpp/main.go
     else
-        echo "wire-pod.service created, building chipper with Coqui STT service..."
+        echo "rocket-pod.service created, building chipper with Coqui STT service..."
         export CGO_LDFLAGS="-L/root/.coqui/"
         export CGO_CXXFLAGS="-I/root/.coqui/"
         export LD_LIBRARY_PATH="/root/.coqui/:$LD_LIBRARY_PATH"
@@ -602,13 +602,13 @@ function setupSystemd() {
     echo
     echo "./chipper/chipper has been built!"
     cd ..
-    mv wire-pod.service /lib/systemd/system/
+    mv rocket-pod.service /lib/systemd/system/
     systemctl daemon-reload
-    systemctl enable wire-pod
+    systemctl enable rocket-pod
     echo
-    echo "systemd service has been installed and enabled! The service is called wire-pod.service"
+    echo "systemd service has been installed and enabled! The service is called rocket-pod.service"
     echo
-    echo "To start the service, run: 'systemctl start wire-pod'"
+    echo "To start the service, run: 'systemctl start rocket-pod'"
     echo "Then, to see logs, run 'journalctl -fe | grep start.sh'"
 }
 
@@ -618,14 +618,14 @@ function disableSystemd() {
         exit 1
     fi
     echo
-    echo "Disabling wire-pod.service"
-    systemctl stop wire-pod.service
-    systemctl disable wire-pod.service
+    echo "Disabling rocket-pod.service"
+    systemctl stop rocket-pod.service
+    systemctl disable rocket-pod.service
     rm ./chipper/chipper
-    rm -f /lib/systemd/system/wire-pod.service
+    rm -f /lib/systemd/system/rocket-pod.service
     systemctl daemon-reload
     echo
-    echo "wire-pod.service has been removed and disabled."
+    echo "rocket-pod.service has been removed and disabled."
 }
 
 function defaultLaunch() {
@@ -633,7 +633,7 @@ function defaultLaunch() {
     getPackages
     getSTT
     echo
-    echo "wire-pod is ready to run! You are ready to move to the next step and run sudo ./chipper/start.sh"
+    echo "Rocket Pod is ready to run! You are ready to move to the next step and run sudo ./chipper/start.sh"
 }
 
 if [[ $1 == "scp" ]]; then
@@ -667,7 +667,7 @@ fi
 # echo "3: Just build chipper"
 # echo "4: Just get STT assets"
 # echo "5: Just generate certs"
-# echo "6: Create wire-pod config file (change/add API keys)"
+# echo "6: Create Rocket Pod config file (change/add API keys)"
 # echo "(NOTE: You can just press enter without entering a number to select the default, recommended option)"
 # echo
 defaultLaunch

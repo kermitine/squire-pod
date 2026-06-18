@@ -642,7 +642,7 @@ func BeginServer() {
 	if runtime.GOOS != "android" {
 		if err := http.ListenAndServe(":80", nil); err != nil {
 			if vars.Packaged {
-				logger.WarnMsg("A process is using port 80. Wire-pod will keep running, but connCheck functionality will not work, so your bot may not always stay connected to your wire-pod instance.")
+				logger.WarnMsg("A process is using port 80. Rocket Pod will keep running, but connCheck functionality will not work, so your bot may not always stay connected to your Rocket Pod instance.")
 			}
 			logger.Println("A process is already using port 80 - connCheck functionality will not work")
 		}

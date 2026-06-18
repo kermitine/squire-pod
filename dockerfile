@@ -158,18 +158,18 @@ RUN apt-get update \
         wget \ 
     && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /opt/wire-pod
+WORKDIR /opt/rocket-pod
 
 COPY --from=builder /opt/vosk/libvosk /opt/vosk/libvosk
-COPY --from=builder /src /opt/wire-pod
-COPY --from=builder /build/chipper /opt/wire-pod/chipper/chipper
-COPY --from=builder /build/.wirepod-version /opt/wire-pod/.wirepod-version
+COPY --from=builder /src /opt/rocket-pod
+COPY --from=builder /build/chipper /opt/rocket-pod/chipper/chipper
+COPY --from=builder /build/.wirepod-version /opt/rocket-pod/.wirepod-version
 
 RUN chmod +x \
-        /opt/wire-pod/setup.sh \
-        /opt/wire-pod/update.sh \
-        /opt/wire-pod/chipper/start.sh \
-        /opt/wire-pod/docker/entrypoint.sh
+        /opt/rocket-pod/setup.sh \
+        /opt/rocket-pod/update.sh \
+        /opt/rocket-pod/chipper/start.sh \
+        /opt/rocket-pod/docker/entrypoint.sh
 
 VOLUME ["/data"]
 
@@ -177,5 +177,5 @@ EXPOSE 80 443 8080 8084
 
 LABEL org.opencontainers.image.revision="${COMMIT_SHA}"
 
-ENTRYPOINT ["/opt/wire-pod/docker/entrypoint.sh"]
-CMD ["/opt/wire-pod/chipper/start.sh"]
+ENTRYPOINT ["/opt/rocket-pod/docker/entrypoint.sh"]
+CMD ["/opt/rocket-pod/chipper/start.sh"]

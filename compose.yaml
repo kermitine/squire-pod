@@ -1,8 +1,10 @@
+name: rocket-pod
+
 services:
-  wire-pod:
-    container_name: wire-pod
-    hostname: escapepod
-    image: squire-pod:face-gate
+  rocket-pod:
+    container_name: rocket-pod
+    hostname: rocketpod
+    image: rocket-pod:face-gate
     pull_policy: never
     build:
       context: .
@@ -16,9 +18,9 @@ services:
       - "8080:8080"
       - "8084:8084"
     volumes:
-      - ./wire-pod-data:/data
-      - ./wire-pod-images:/images
-      - ./wire-pod-productivity-images:/opt/wire-pod/chipper/productivity-images
+      - ./rocket-pod-data:/data
+      - ./rocket-pod-images:/images
+      - ./rocket-pod-productivity-images:/opt/rocket-pod/chipper/productivity-images
     healthcheck:
       test: [ "CMD", "curl", "-fsS", "http://localhost:8080/ok" ]
       interval: 30s

@@ -25,7 +25,7 @@ var CommitSHA string
 
 var VarsInited bool
 
-// if compiled into an installation package. wire-pod will use os.UserConfigDir()
+// if compiled into an installation package. Rocket Pod will use os.UserConfigDir()
 var Packaged bool
 
 var IsPackagedLinux bool
@@ -39,7 +39,7 @@ var (
 	BotConfigsPath    string = "./botConfig.json"
 	BotInfoPath       string = "./jdocs/botSdkInfo.json"
 	BotInfoName       string = "botSdkInfo.json"
-	PodName           string = "wire-pod"
+	PodName           string = "rocket-pod"
 	VoskModelPath     string = "../vosk/models/"
 	WhisperModelPath  string = "../whisper.cpp/models/"
 	SessionCertPath   string = "./session-certs/"
@@ -167,7 +167,7 @@ func Init() {
 	logger.Println("Initializing variables")
 
 	if Packaged {
-		logger.Println("This version of wire-pod is packaged. Set vars to include UserConfigDir...")
+		logger.Println("This version of Rocket Pod is packaged. Set vars to include UserConfigDir...")
 		var confDir string
 		if runtime.GOOS == "android" || runtime.GOOS == "ios" {
 			confDir = AndroidPath
@@ -210,8 +210,8 @@ func Init() {
 	}
 
 	// figure out user SDK path, containing sdk_config.ini
-	// has to be done like this because wire-pod is running as root
-	// path should be /home/name/wire-pod/chipper
+	// has to be done like this because Rocket Pod is running as root
+	// path should be /home/name/rocket-pod/chipper
 	// Split puts an extra / in the beginning of the array
 	podPath, _ := os.Getwd()
 	podPathSplit := strings.Split(strings.TrimSpace(podPath), "/")
@@ -219,10 +219,10 @@ func Init() {
 		dir, _ := os.UserHomeDir()
 		SDKIniPath = dir + "/.anki_vector/"
 	} else if runtime.GOOS == "android" || runtime.GOOS == "ios" {
-		SDKIniPath = filepath.Join(AndroidPath, "/wire-pod/anki_vector")
+		SDKIniPath = filepath.Join(AndroidPath, "/rocket-pod/anki_vector")
 	} else {
 		if podPathSplit[len(podPathSplit)-1] != "chipper" || podPathSplit[len(podPathSplit)-2] != PodName {
-			logger.Println("It looks like you may have changed path names of the directories wire-pod is running in. This is not recommended because the SDK implementation depends on relativity in a few spots.")
+			logger.Println("It looks like you may have changed path names of the directories Rocket Pod is running in. This is not recommended because the SDK implementation depends on relativity in a few spots.")
 		}
 		if len(podPathSplit) >= 5 {
 			SDKIniPath = "/" + podPathSplit[1] + "/" + podPathSplit[2] + "/.anki_vector/"

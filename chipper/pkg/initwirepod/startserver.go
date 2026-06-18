@@ -84,7 +84,7 @@ func grpcServe(l net.Listener, p *wp.Server) error {
 func BeginWirepodSpecific(sttInitFunc func() error, sttHandlerFunc interface{}, voiceProcessorName string) error {
 	logger.Init()
 
-	// begin wirepod stuff
+	// begin Rocket Pod stuff
 	vars.Init()
 	var err error
 	voiceProcessor, err = wp.New(sttInitFunc, sttHandlerFunc, voiceProcessorName)
@@ -104,12 +104,12 @@ func StartFromProgramInit(sttInitFunc func() error, sttHandlerFunc interface{}, 
 	}
 	err := BeginWirepodSpecific(sttInitFunc, sttHandlerFunc, voiceProcessorName)
 	if err != nil {
-		logger.Println("\033[33m\033[1mWire-pod is not setup. Use the webserver at port 8080 to set up wire-pod.\033[0m")
+		logger.Println("\033[33m\033[1mRocket Pod is not setup. Use the webserver at port 8080 to set up Rocket Pod.\033[0m")
 	} else if !vars.APIConfig.PastInitialSetup {
-		logger.Println("\033[33m\033[1mWire-pod is not setup. Use the webserver at port 8080 to set up wire-pod.\033[0m")
+		logger.Println("\033[33m\033[1mRocket Pod is not setup. Use the webserver at port 8080 to set up Rocket Pod.\033[0m")
 	} else if (vars.APIConfig.STT.Service == "vosk" || vars.APIConfig.STT.Service == "whisper.cpp") && vars.APIConfig.STT.Language == "" {
 		logger.Println("\033[33m\033[1mLanguage value is blank, but STT service is " + vars.APIConfig.STT.Service + ". Reinitiating setup process.\033[0m")
-		logger.Println("\033[33m\033[1mWire-pod is not setup. Use the webserver at port 8080 to set up wire-pod.\033[0m")
+		logger.Println("\033[33m\033[1mRocket Pod is not setup. Use the webserver at port 8080 to set up Rocket Pod.\033[0m")
 		vars.APIConfig.PastInitialSetup = false
 	} else {
 		go StartChipper()
@@ -154,7 +154,7 @@ func StartChipper() {
 			certPub, _ = os.ReadFile(vars.AndroidPath + "/wire-pod/certs/cert.crt")
 			certPriv, err = os.ReadFile(vars.AndroidPath + "/wire-pod/certs/cert.key")
 			if err != nil {
-				logger.Println("wire-pod is not setup.")
+				logger.Println("Rocket Pod is not setup.")
 				return
 			}
 		}
@@ -167,7 +167,7 @@ func StartChipper() {
 			certPub, _ = os.ReadFile("../certs/cert.crt")
 			certPriv, err = os.ReadFile("../certs/cert.key")
 			if err != nil {
-				logger.Println("wire-pod is not setup.")
+				logger.Println("Rocket Pod is not setup.")
 				return
 			}
 		}
@@ -215,7 +215,7 @@ func StartChipper() {
 		go httpServe(httpListenerTwo)
 	}
 
-	fmt.Println("\033[33m\033[1mwire-pod started successfully!\033[0m")
+	fmt.Println("\033[33m\033[1mRocket Pod started successfully!\033[0m")
 
 	chipperServing = true
 	if vars.APIConfig.Server.EPConfig && os.Getenv("NO8084") != "true" {

@@ -4,9 +4,13 @@ var fontMap = {
 };
 
 var colorMap = {
+    "red": {
+        original: "#ff3b30",
+        lighter: "#ff5a4f"
+    },
     "teal": {
-        original: "#00ff80",
-        lighter: "#00ff80"
+        original: "#00f5d4",
+        lighter: "#33ffe5"
     },
     "orange": {
         original: "#ff3d0a",

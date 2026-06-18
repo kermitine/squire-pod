@@ -11,7 +11,7 @@ func WarnMsg(msg string) {
 	zenity.Warning(
 		msg,
 		zenity.WarningIcon,
-		zenity.Title("WirePod"),
+		zenity.Title("Rocket Pod"),
 	)
 }
 
@@ -19,6 +19,6 @@ func ErrMsg(msg string) {
 	zenity.Error(
 		msg,
 		zenity.ErrorIcon,
-		zenity.Title("WirePod"),
+		zenity.Title("Rocket Pod"),
 	)
 }

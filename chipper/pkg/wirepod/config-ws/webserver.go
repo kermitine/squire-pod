@@ -558,7 +558,7 @@ func StartWebServer() {
 	if err := http.ListenAndServe(":"+vars.WebPort, nil); err != nil {
 		logger.Println("Error binding to " + vars.WebPort + ": " + err.Error())
 		if vars.Packaged {
-			logger.ErrMsg("FATAL: Wire-pod was unable to bind to port " + vars.WebPort + ". Another process is likely using it. Exiting.")
+			logger.ErrMsg("FATAL: Rocket Pod was unable to bind to port " + vars.WebPort + ". Another process is likely using it. Exiting.")
 		}
 		os.Exit(1)
 	}

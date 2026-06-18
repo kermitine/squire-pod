@@ -30,7 +30,7 @@ elif [[ ${TARGET} == "darwin" ]]; then
 fi
 
 if [[ ! -d ./chipper ]]; then
-  echo "This must be run in the wire-pod/ directory."
+  echo "This must be run in the rocket-pod/ directory."
   exit 1
 fi
 
@@ -39,16 +39,16 @@ git reset --hard origin/main
 if [[ -f ./chipper/chipper ]]; then
     cd chipper
     source source.sh
-    sudo systemctl stop wire-pod
+    sudo systemctl stop rocket-pod
     if [[ ${STT_SERVICE} == "leopard" ]]; then
-        echo "wire-pod.service created, building chipper with Picovoice STT service..."
+        echo "rocket-pod.service created, building chipper with Picovoice STT service..."
         sudo /usr/local/go/bin/go build cmd/leopard/main.go
     elif [[ ${STT_SERVICE} == "vosk" ]]; then
-        echo "wire-pod.service created, building chipper with VOSK STT service..."
+        echo "rocket-pod.service created, building chipper with VOSK STT service..."
         export CGO_ENABLED=1
         sudo LD_LIBRARY_PATH="/root/.vosk/libvosk:$LD_LIBRARY_PATH" CGO_LDFLAGS="-L /root/.vosk/libvosk -lvosk -ldl -lpthread" CGO_CFLAGS="-I/root/.vosk/libvosk" CGO_ENABLED=1 /usr/local/go/bin/go build cmd/vosk/main.go
     elif [[ ${STT_SERVICE} == "coqui" ]]; then
-        echo "wire-pod.service created, building chipper with Coqui STT service..."
+        echo "rocket-pod.service created, building chipper with Coqui STT service..."
         sudo LD_LIBRARY_PATH="/root/.coqui/:$LD_LIBRARY_PATH" CGO_CXXFLAGS="-I/root/.coqui/" CGO_LDFLAGS="-L/root/.coqui/" /usr/local/go/bin/go build cmd/coqui/main.go
     else
 	echo "Unsupported STT ${STT_SERVICE}. You must build this manually. The code has been updated, though."
@@ -57,8 +57,8 @@ if [[ -f ./chipper/chipper ]]; then
     echo "Syncing..."
     sync
     sudo systemctl daemon-reload
-    sudo systemctl start wire-pod
-    echo "wire-pod is now running with the updated code!"
+    sudo systemctl start rocket-pod
+    echo "Rocket Pod is now running with the updated code!"
 fi
 echo
 echo "Updated successfully!"

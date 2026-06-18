@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_ROOT="/opt/wire-pod"
+APP_ROOT="/opt/rocket-pod"
 DATA_ROOT="${WIREPOD_DATA_DIR:-/data}"
 DEFAULT_SOURCE="${APP_ROOT}/docker/default-source.sh"
 
