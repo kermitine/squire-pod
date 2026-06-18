@@ -3,6 +3,7 @@ services:
     container_name: wire-pod
     hostname: escapepod
     image: squire-pod:face-gate
+    pull_policy: never
     build:
       context: .
       dockerfile: dockerfile
