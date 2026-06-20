@@ -25,6 +25,11 @@ var SttInitFunc func() error
 
 var ProductivityImgPath = "./productivity-images"
 
+const (
+	sourceRepoOwner = "kermitine"
+	sourceRepoName  = "squire-pod"
+)
+
 func apiHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Headers", "*")
@@ -474,16 +479,6 @@ func handleGetVersionInfo(w http.ResponseWriter) {
 	if err == nil {
 		installedVer = strings.TrimSpace(string(ver))
 	}
-	currentVer, err := GetLatestReleaseTag("kercre123", "WirePod")
-	if err != nil {
-		http.Error(w, "error communicating with github (ver): "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-	currentCommit, err := GetLatestCommitSha()
-	if err != nil {
-		http.Error(w, "error communicating with github (commit): "+err.Error(), http.StatusInternalServerError)
-		return
-	}
 	type VersionInfo struct {
 		FromSource      bool   `json:"fromsource"`
 		InstalledVer    string `json:"installedversion"`
@@ -492,14 +487,22 @@ func handleGetVersionInfo(w http.ResponseWriter) {
 		CurrentCommit   string `json:"currentcommit"`
 		UpdateAvailable bool   `json:"avail"`
 	}
-	var fromSource bool
-	if installedVer == "" {
-		fromSource = true
-	}
+	fromSource := installedVer == ""
+	var currentVer, currentCommit string
 	var uAvail bool
 	if fromSource {
+		currentCommit, err = GetLatestCommitSha(sourceRepoOwner, sourceRepoName)
+		if err != nil {
+			http.Error(w, "error communicating with github (commit): "+err.Error(), http.StatusInternalServerError)
+			return
+		}
 		uAvail = vars.CommitSHA != strings.TrimSpace(currentCommit)
 	} else {
+		currentVer, err = GetLatestReleaseTag(sourceRepoOwner, sourceRepoName)
+		if err != nil {
+			http.Error(w, "error communicating with github (ver): "+err.Error(), http.StatusInternalServerError)
+			return
+		}
 		uAvail = installedVer != strings.TrimSpace(currentVer)
 	}
 	verInfo := VersionInfo{
@@ -564,9 +567,10 @@ func StartWebServer() {
 	}
 }
 
-func GetLatestCommitSha() (string, error) {
+func GetLatestCommitSha(owner, repo string) (string, error) {
 	client := &http.Client{}
-	req, err := http.NewRequest("GET", "https://api.github.com/repos/kercre123/wire-pod/commits", nil)
+	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/commits", owner, repo)
+	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return "", err
 	}
@@ -600,6 +604,9 @@ func GetLatestReleaseTag(owner, repo string) (string, error) {
 		return "", err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("failed to get latest release: %s", resp.Status)
+	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
