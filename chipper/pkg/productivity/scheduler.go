@@ -19,18 +19,13 @@ const (
 )
 
 type ManualReminder struct {
-	ID                     string                 `json:"id"`
-	Enabled                bool                   `json:"enabled"`
-	Image                  string                 `json:"image"`
-	Phrases                []string               `json:"phrases"`
-	RequireConfirmation    bool                   `json:"require_confirmation"`
-	RequireRecognizedFace  bool                   `json:"require_recognized_face"`
-	RecognizedFaceName     string                 `json:"recognized_face_name"`
-	FaceWaitMinutes        int                    `json:"face_wait_minutes"`
-	ApproachRecognizedFace bool                   `json:"approach_recognized_face"`
-	ApproachDistanceMM     int                    `json:"approach_distance_mm"`
-	SnoozeMinutes          int                    `json:"snooze_minutes"`
-	Schedule               ManualReminderSchedule `json:"schedule"`
+	ID                  string                 `json:"id"`
+	Enabled             bool                   `json:"enabled"`
+	Image               string                 `json:"image"`
+	Phrases             []string               `json:"phrases"`
+	RequireConfirmation bool                   `json:"require_confirmation"`
+	SnoozeMinutes       int                    `json:"snooze_minutes"`
+	Schedule            ManualReminderSchedule `json:"schedule"`
 }
 
 type ManualReminderSchedule struct {
@@ -259,11 +254,6 @@ func checkManualReminders(esn string, configStr string, generation uint64) {
 				Image:                   r.Image,
 				Source:                  "manual",
 				RequireConfirmation:     r.RequireConfirmation,
-				RequireRecognizedFace:   r.RequireRecognizedFace,
-				RecognizedFaceName:      r.RecognizedFaceName,
-				FaceWaitMinutes:         r.FaceWaitMinutes,
-				ApproachRecognizedFace:  r.ApproachRecognizedFace,
-				ApproachDistanceMM:      r.ApproachDistanceMM,
 				SnoozeMinutes:           r.SnoozeMinutes,
 				configurationGeneration: generation,
 			}:

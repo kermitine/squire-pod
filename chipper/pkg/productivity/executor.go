@@ -36,18 +36,8 @@ type Task struct {
 	Source                  string
 	RetryCount              int
 	RequireConfirmation     bool
-	RequireRecognizedFace   bool
-	RecognizedFaceName      string
-	FaceWaitMinutes         int
-	ApproachRecognizedFace  bool
-	ApproachDistanceMM      int
 	SnoozeMinutes           int
 	configurationGeneration uint64
-}
-
-type recognizedFaceMatch struct {
-	ID   int32
-	Name string
 }
 
 type systemIntentResponseStruct struct {
@@ -69,13 +59,8 @@ const (
 )
 
 var (
-	taskQueue                  = make(chan Task, 10)
-	defaultFaceWaitMinutes     = 5
-	defaultApproachDistanceMM  = 300
-	minApproachDistanceMM      = 50
-	maxApproachDistanceMM      = 1000
-	approachDriveSpeedMMPerSec = 80
-	configurationGeneration    uint64
+	taskQueue               = make(chan Task, 10)
+	configurationGeneration uint64
 )
 
 func executorLoop() {
@@ -198,28 +183,6 @@ func processTask(task Task) {
 		return
 	}
 
-	var matchedFace recognizedFaceMatch
-	if task.RequireRecognizedFace {
-		waitMinutes := task.FaceWaitMinutes
-		if waitMinutes < 1 {
-			waitMinutes = defaultFaceWaitMinutes
-		}
-		logger.Println("Productivity: Waiting for recognized face before reminder " + task.ID)
-		faceCtx, faceCancel := context.WithTimeout(context.Background(), time.Duration(waitMinutes)*time.Minute)
-		recognized, face, err := waitForRecognizedFace(faceCtx, robot, task.RecognizedFaceName)
-		faceCancel()
-		if err != nil {
-			retryTask(task, "Face recognition wait failed")
-			return
-		}
-		if !recognized {
-			logger.Println("Productivity: Recognized face not seen, snoozing task " + task.ID)
-			snoozeTask(task)
-			return
-		}
-		matchedFace = face
-		logger.Println("Productivity: Recognized face matched for task " + task.ID + ": " + face.Name)
-	}
 	if !taskIsCurrent(task) {
 		return
 	}
@@ -258,10 +221,6 @@ func processTask(task Task) {
 	}
 	if !taskIsCurrent(task) {
 		return
-	}
-
-	if task.ApproachRecognizedFace && matchedFace.ID > 0 {
-		approachRecognizedFace(ctx, robot, matchedFace, task.ApproachDistanceMM)
 	}
 
 	if task.Image != "" {
@@ -380,85 +339,6 @@ func releaseBehaviorControl(bcClient behaviorControlStream) error {
 			ControlRelease: &vectorpb.ControlRelease{},
 		},
 	})
-}
-
-func waitForRecognizedFace(ctx context.Context, robot *vector.Vector, desiredName string) (bool, recognizedFaceMatch, error) {
-	desiredName = strings.TrimSpace(desiredName)
-
-	if _, err := robot.Conn.EnableFaceDetection(ctx, &vectorpb.EnableFaceDetectionRequest{
-		Enable: true,
-	}); err != nil {
-		return false, recognizedFaceMatch{}, err
-	}
-
-	eventStream, err := robot.Conn.EventStream(ctx, &vectorpb.EventRequest{})
-	if err != nil {
-		return false, recognizedFaceMatch{}, err
-	}
-
-	for {
-		resp, err := eventStream.Recv()
-		if err != nil {
-			if ctx.Err() != nil {
-				return false, recognizedFaceMatch{}, nil
-			}
-			return false, recognizedFaceMatch{}, err
-		}
-		if resp == nil || resp.Event == nil {
-			continue
-		}
-
-		face := resp.Event.GetRobotObservedFace()
-		if face == nil {
-			continue
-		}
-
-		name := strings.TrimSpace(face.GetName())
-		if name == "" {
-			continue
-		}
-		if desiredName == "" || strings.EqualFold(name, desiredName) {
-			return true, recognizedFaceMatch{ID: face.GetFaceId(), Name: name}, nil
-		}
-	}
-}
-
-func approachRecognizedFace(ctx context.Context, robot *vector.Vector, face recognizedFaceMatch, distanceMM int) {
-	distanceMM = clampApproachDistance(distanceMM)
-	logger.Println("Productivity: Approaching recognized face " + face.Name)
-
-	if _, err := robot.Conn.TurnTowardsFace(ctx, &vectorpb.TurnTowardsFaceRequest{
-		FaceId:          face.ID,
-		MaxTurnAngleRad: float32(math.Pi),
-		NumRetries:      2,
-	}); err != nil {
-		logger.Println("Productivity: Turn toward face failed: " + err.Error())
-		return
-	}
-
-	time.Sleep(500 * time.Millisecond)
-
-	if _, err := robot.Conn.DriveStraight(ctx, &vectorpb.DriveStraightRequest{
-		SpeedMmps:           float32(approachDriveSpeedMMPerSec),
-		DistMm:              float32(distanceMM),
-		ShouldPlayAnimation: false,
-		NumRetries:          1,
-	}); err != nil {
-		logger.Println("Productivity: Approach drive failed: " + err.Error())
-	}
-}
-
-func clampApproachDistance(distanceMM int) int {
-	if distanceMM < 1 {
-		return defaultApproachDistanceMM
-	}
-	if distanceMM < minApproachDistanceMM {
-		return minApproachDistanceMM
-	}
-	if distanceMM > maxApproachDistanceMM {
-		return maxApproachDistanceMM
-	}
-	return distanceMM
 }
 
 func waitForConfirmation(ctx context.Context, robot *vector.Vector, esn string) (confirmationResult, error) {

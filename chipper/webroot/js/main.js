@@ -317,11 +317,6 @@ function addReminderBlock(data = null) {
   const reminderImage = data ? data.image : "";
   const scheduleType = data && data.schedule ? data.schedule.type : "daily";
   const requireConfirm = data && data.require_confirmation === true ? "checked" : "";
-  const requireFace = data && data.require_recognized_face === true ? "checked" : "";
-  const faceName = data && data.recognized_face_name ? data.recognized_face_name : "";
-  const faceWaitVal = data && data.face_wait_minutes ? data.face_wait_minutes : 5;
-  const approachFace = data && data.approach_recognized_face === true ? "checked" : "";
-  const approachDistanceVal = data && data.approach_distance_mm ? data.approach_distance_mm : 300;
   const isEnabled = data && data.enabled === false ? "" : "checked";
   const snoozeVal = data && data.snooze_minutes ? data.snooze_minutes : 10;
 
@@ -351,27 +346,6 @@ function addReminderBlock(data = null) {
                 <input type="checkbox" class="reminder-req-confirm" id="${id}_confirm" ${requireConfirm}>
                 <label for="${id}_confirm" class="checkbox-label" style="margin-left:10px;">Requires verbal "Yes" (otherwise snooze)</label>
             </div>
-
-            <label>Face Gate</label>
-            <div style="display:flex; align-items:center;">
-                <input type="checkbox" class="reminder-req-face" id="${id}_face_gate" ${requireFace}>
-                <label for="${id}_face_gate" class="checkbox-label" style="margin-left:10px;">Only deliver after recognizing an enrolled face</label>
-            </div>
-
-            <label>Face Name</label>
-            <input type="text" class="tinput reminder-face-name-val" value="${faceName}" placeholder="Optional: exact enrolled name">
-
-            <label>Face Wait Time (Minutes)</label>
-            <input type="number" class="tinput reminder-face-wait-val" value="${faceWaitVal}" min="1" placeholder="5">
-
-            <label>Approach Face</label>
-            <div style="display:flex; align-items:center;">
-                <input type="checkbox" class="reminder-approach-face" id="${id}_approach_face" ${approachFace}>
-                <label for="${id}_approach_face" class="checkbox-label" style="margin-left:10px;">Turn toward the matched face and drive closer</label>
-            </div>
-
-            <label>Approach Distance (mm)</label>
-            <input type="number" class="tinput reminder-approach-distance-val" value="${approachDistanceVal}" min="50" max="1000" placeholder="300">
 
             <label>Snooze Time (Minutes)</label>
             <input type="number" class="tinput reminder-snooze-val" value="${snoozeVal}" min="1" placeholder="10">
@@ -438,11 +412,6 @@ function testReminder(id) {
   const existingImage = block.querySelector(".reminder-img-existing").value;
   const fileInput = block.querySelector(".reminder-file-input");
   const requireConfirm = block.querySelector(".reminder-req-confirm").checked;
-  const requireFace = block.querySelector(".reminder-req-face").checked;
-  const faceName = block.querySelector(".reminder-face-name-val").value.trim();
-  const faceWaitMinutes = parseInt(block.querySelector(".reminder-face-wait-val").value) || 5;
-  const approachFace = block.querySelector(".reminder-approach-face").checked;
-  const approachDistanceMM = parseInt(block.querySelector(".reminder-approach-distance-val").value) || 300;
   const snoozeMinutes = parseInt(block.querySelector(".reminder-snooze-val").value) || 10;
 
   const formData = new FormData();
@@ -464,11 +433,6 @@ function testReminder(id) {
       image: imageName,
       phrases: phrases,
       require_confirmation: requireConfirm,
-      require_recognized_face: requireFace,
-      recognized_face_name: faceName,
-      face_wait_minutes: faceWaitMinutes,
-      approach_recognized_face: approachFace,
-      approach_distance_mm: approachDistanceMM,
       snooze_minutes: snoozeMinutes,
       schedule: { type: "test" }
   };
@@ -590,11 +554,6 @@ function collectManualConfigData(formDataObj) {
     const existingImage = block.querySelector(".reminder-img-existing").value;
     const fileInput = block.querySelector(".reminder-file-input");
     const requireConfirm = block.querySelector(".reminder-req-confirm").checked;
-    const requireFace = block.querySelector(".reminder-req-face").checked;
-    const faceName = block.querySelector(".reminder-face-name-val").value.trim();
-    const faceWaitMinutes = parseInt(block.querySelector(".reminder-face-wait-val").value) || 5;
-    const approachFace = block.querySelector(".reminder-approach-face").checked;
-    const approachDistanceMM = parseInt(block.querySelector(".reminder-approach-distance-val").value) || 300;
     const snoozeMinutes = parseInt(block.querySelector(".reminder-snooze-val").value) || 10;
 
     let imageName = existingImage;
@@ -639,11 +598,6 @@ function collectManualConfigData(formDataObj) {
             image: imageName,
             phrases: phrases,
             require_confirmation: requireConfirm,
-            require_recognized_face: requireFace,
-            recognized_face_name: faceName,
-            face_wait_minutes: faceWaitMinutes,
-            approach_recognized_face: approachFace,
-            approach_distance_mm: approachDistanceMM,
             snooze_minutes: snoozeMinutes,
             schedule: schedule
         });

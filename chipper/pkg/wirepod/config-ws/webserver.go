@@ -356,18 +356,13 @@ func handleTestProductivityReminder(w http.ResponseWriter, r *http.Request) {
 	}
 
 	task := productivity.Task{
-		ID:                     reminder.ID,
-		RobotESN:               targetRobot,
-		Phrases:                reminder.Phrases,
-		Image:                  reminder.Image,
-		Source:                 "test",
-		RequireConfirmation:    reminder.RequireConfirmation,
-		RequireRecognizedFace:  reminder.RequireRecognizedFace,
-		RecognizedFaceName:     reminder.RecognizedFaceName,
-		FaceWaitMinutes:        reminder.FaceWaitMinutes,
-		ApproachRecognizedFace: reminder.ApproachRecognizedFace,
-		ApproachDistanceMM:     reminder.ApproachDistanceMM,
-		SnoozeMinutes:          reminder.SnoozeMinutes,
+		ID:                  reminder.ID,
+		RobotESN:            targetRobot,
+		Phrases:             reminder.Phrases,
+		Image:               reminder.Image,
+		Source:              "test",
+		RequireConfirmation: reminder.RequireConfirmation,
+		SnoozeMinutes:       reminder.SnoozeMinutes,
 	}
 
 	productivity.InjectTestTask(task)

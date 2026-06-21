@@ -86,24 +86,6 @@ func TestClassifyConfirmationIntent(t *testing.T) {
 	}
 }
 
-func TestClampApproachDistance(t *testing.T) {
-	tests := []struct {
-		input int
-		want  int
-	}{
-		{input: 0, want: defaultApproachDistanceMM},
-		{input: 10, want: minApproachDistanceMM},
-		{input: 250, want: 250},
-		{input: 2000, want: maxApproachDistanceMM},
-	}
-
-	for _, tt := range tests {
-		if got := clampApproachDistance(tt.input); got != tt.want {
-			t.Errorf("clampApproachDistance(%d) = %d, want %d", tt.input, got, tt.want)
-		}
-	}
-}
-
 func TestNotifyConfigUpdatedInvalidatesExistingTasks(t *testing.T) {
 	previousGeneration := currentConfigurationGeneration()
 	defer func() {

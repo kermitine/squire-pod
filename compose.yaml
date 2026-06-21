@@ -5,7 +5,7 @@ services:
     container_name: rocket-pod
     # Keep the container hostname aligned with the LAN name advertised by mDNS.
     hostname: escapepod
-    image: rocket-pod:face-gate
+    image: rocket-pod:latest
     pull_policy: never
     build:
       context: .
