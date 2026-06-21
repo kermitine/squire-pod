@@ -58,6 +58,9 @@ const (
 	confirmationTimedOut confirmationResult = iota
 	confirmationAccepted
 	confirmationDeclined
+
+	reminderImageDisplayDuration = 3 * time.Second
+	reminderImageSettleDelay     = 250 * time.Millisecond
 )
 
 var (
@@ -234,15 +237,20 @@ func processTask(task Task) {
 			} else {
 				if _, err := robot.Conn.DisplayFaceImageRGB(ctx, &vectorpb.DisplayFaceImageRGBRequest{
 					FaceData:         imgData,
-					DurationMs:       30000,
+					DurationMs:       uint32(reminderImageDisplayDuration / time.Millisecond),
 					InterruptRunning: true,
 				}); err != nil {
 					logger.Println("Productivity: Face image display failed: " + err.Error())
+				} else if !waitForReminderImage(ctx) {
+					return
 				}
 			}
 		} else {
 			logger.Println("Productivity: Face image is unavailable: " + err.Error())
 		}
+	}
+	if !taskIsCurrent(task) {
+		return
 	}
 
 	if len(task.Phrases) > 0 {
@@ -307,6 +315,20 @@ func processTask(task Task) {
 			}
 			snoozeTask(task)
 		}
+	}
+}
+
+// DisplayFaceImageRGB only confirms that the face-image chunks were submitted;
+// vic-engine continues running the face action for DurationMs. Starting SayText
+// during that window makes the two actions compete for the face.
+func waitForReminderImage(ctx context.Context) bool {
+	timer := time.NewTimer(reminderImageDisplayDuration + reminderImageSettleDelay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
 	}
 }
 

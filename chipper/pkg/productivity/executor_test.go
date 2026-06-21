@@ -1,6 +1,7 @@
 package productivity
 
 import (
+	"context"
 	"errors"
 	"sync/atomic"
 	"testing"
@@ -142,5 +143,14 @@ func TestTestReminderDoesNotSnooze(t *testing.T) {
 	case task := <-taskQueue:
 		t.Fatalf("test reminder was requeued: %#v", task)
 	default:
+	}
+}
+
+func TestWaitForReminderImageHonorsCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if waitForReminderImage(ctx) {
+		t.Fatal("waitForReminderImage() = true for canceled context")
 	}
 }

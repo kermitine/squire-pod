@@ -188,7 +188,8 @@ func GetActionsFromString(input string) []RobotAction {
 		if strings.TrimSpace(spl) == "" {
 			continue
 		}
-		if !strings.Contains(spl, "}}") {
+		commandText, trailingText, hasClosingBraces := strings.Cut(spl, "}}")
+		if !hasClosingBraces {
 			// sayText
 			action := RobotAction{
 				Action:    ActionSayText,
@@ -198,17 +199,19 @@ func GetActionsFromString(input string) []RobotAction {
 			continue
 		}
 
-		cmdPlusParam := strings.Split(strings.TrimSpace(strings.Split(spl, "}}")[0]), "||")
-		cmd := strings.TrimSpace(cmdPlusParam[0])
-		param := strings.TrimSpace(cmdPlusParam[1])
-		action := CmdParamToAction(cmd, param)
-		if action.Action != -1 {
-			actions = append(actions, action)
+		cmd, param, hasParameter := strings.Cut(strings.TrimSpace(commandText), "||")
+		if !hasParameter {
+			logger.Println("Ignoring malformed LLM command (expected {{command||parameter}}): " + commandText)
+		} else {
+			action := CmdParamToAction(strings.TrimSpace(cmd), strings.TrimSpace(param))
+			if action.Action != -1 {
+				actions = append(actions, action)
+			}
 		}
-		if len(strings.Split(spl, "}}")) != 1 {
+		if trailingText = strings.TrimSpace(trailingText); trailingText != "" {
 			action := RobotAction{
 				Action:    ActionSayText,
-				Parameter: strings.TrimSpace(strings.Split(spl, "}}")[1]),
+				Parameter: trailingText,
 			}
 			actions = append(actions, action)
 		}
