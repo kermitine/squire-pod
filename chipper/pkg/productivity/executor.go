@@ -61,8 +61,6 @@ const (
 
 	reminderImageDisplayDuration = 3 * time.Second
 	reminderImageSettleDelay     = 250 * time.Millisecond
-	reminderFaceImageWidth       = 160
-	reminderFaceImageHeight      = 80
 )
 
 var (
@@ -666,8 +664,8 @@ func convertImageToVectorFace(path string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	const width = reminderFaceImageWidth
-	const height = reminderFaceImageHeight
+	const width = 184
+	const height = 96
 	buf := make([]byte, width*height*2)
 	bounds := img.Bounds()
 	srcW := bounds.Dx()

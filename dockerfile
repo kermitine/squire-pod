@@ -53,7 +53,6 @@ RUN set -eux; \
 
 WORKDIR /src
 
-COPY vector-go-sdk/go.mod vector-go-sdk/go.sum ./vector-go-sdk/
 COPY chipper/go.mod chipper/go.sum ./chipper/
 
 RUN --mount=type=cache,target=/go/pkg/mod \
