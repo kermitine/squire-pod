@@ -238,7 +238,7 @@ func processTask(task Task) {
 				if _, err := robot.Conn.DisplayFaceImageRGB(ctx, &vectorpb.DisplayFaceImageRGBRequest{
 					FaceData:         imgData,
 					DurationMs:       uint32(reminderImageDisplayDuration / time.Millisecond),
-					InterruptRunning: false,
+					InterruptRunning: true,
 				}); err != nil {
 					logger.Println("Productivity: Face image display failed: " + err.Error())
 				} else if !waitForReminderImage(ctx) {
