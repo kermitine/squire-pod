@@ -63,7 +63,8 @@ const (
 
 	reminderImageDisplayDuration = 3 * time.Second
 	reminderImageSettleDelay     = 250 * time.Millisecond
-	reminderFaceSearchTimeout    = 15 * time.Second
+	reminderFaceSearchTimeout    = 35 * time.Second
+	reminderInitialFaceCheck     = 2 * time.Second
 	reminderFaceTurnTimeout      = 6 * time.Second
 	reminderFaceTurnActionTag    = 2400001
 	reminderFaceScanActionTag    = 2400002
@@ -440,7 +441,7 @@ func facePersonForReminder(ctx context.Context, robot *vector.Vector) {
 
 	// Give face detection a moment before beginning the scan. Each turn is a
 	// small, completed action, so observing a face prevents any further turns.
-	warmupTimer := time.NewTimer(500 * time.Millisecond)
+	warmupTimer := time.NewTimer(reminderInitialFaceCheck)
 	select {
 	case <-faceSeen:
 		warmupTimer.Stop()

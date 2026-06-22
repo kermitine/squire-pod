@@ -54,6 +54,24 @@ func TestNBALiveNotificationInterval(t *testing.T) {
 	}
 }
 
+func TestSpokenNBAGameDetail(t *testing.T) {
+	tests := []struct {
+		detail string
+		want   string
+	}{
+		{detail: "4:39 - 3rd", want: "4 minutes 39 seconds left in the third quarter"},
+		{detail: "1:01 - 1st", want: "1 minute 1 second left in the first quarter"},
+		{detail: "0:08 - 4th", want: "8 seconds left in the fourth quarter"},
+		{detail: "2:00 - OT", want: "2 minutes left in overtime"},
+		{detail: "Halftime", want: "Halftime"},
+	}
+	for _, tt := range tests {
+		if got := spokenNBAGameDetail(tt.detail); got != tt.want {
+			t.Errorf("spokenNBAGameDetail(%q) = %q, want %q", tt.detail, got, tt.want)
+		}
+	}
+}
+
 func TestNBAFinalNotificationAndFaceRender(t *testing.T) {
 	resetNBANotificationState()
 	now := time.Date(2026, time.January, 2, 1, 0, 0, 0, time.UTC)

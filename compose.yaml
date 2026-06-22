@@ -5,10 +5,10 @@ services:
     container_name: rocket-pod
     hostname: escapepod
     image: rocket-pod:latest
-    pull_policy: never
+    pull_policy: build
     network_mode: host
     build:
-      context: .
+      context: https://github.com/kermitine/rocket-pod.git#main
       dockerfile: dockerfile
     restart: unless-stopped
     environment:

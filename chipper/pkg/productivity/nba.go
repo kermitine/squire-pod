@@ -11,7 +11,9 @@ import (
 	_ "image/png"
 	"math/rand"
 	"net/http"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -38,6 +40,8 @@ var nbaTeamNames = map[string]string{
 	"POR": "Portland Trail Blazers", "SA": "San Antonio Spurs", "SAC": "Sacramento Kings",
 	"TOR": "Toronto Raptors", "UTAH": "Utah Jazz", "WSH": "Washington Wizards",
 }
+
+var nbaSpokenClockPattern = regexp.MustCompile(`(?i)^\s*(\d+):(\d{2})\s*-\s*(1st|2nd|3rd|4th|OT)\b`)
 
 type nbaScoreboard struct {
 	Events []nbaEvent `json:"events"`
@@ -120,7 +124,7 @@ func InjectTestNBAUpdate(robotESN string) error {
 		return fmt.Errorf("render score display: %w", err)
 	}
 	away, home, _ := nbaGameTeams(game)
-	phrase := fmt.Sprintf("NBA score update. %s, %s. %s, %s. %s.", away.Team.DisplayName, away.Score, home.Team.DisplayName, home.Score, game.Status.Type.ShortDetail)
+	phrase := fmt.Sprintf("NBA score update. %s, %s. %s, %s. %s.", away.Team.DisplayName, away.Score, home.Team.DisplayName, home.Score, spokenNBAGameDetail(game.Status.Type.ShortDetail))
 	task := Task{
 		ID:                      fmt.Sprintf("nba_test_%d", time.Now().UnixNano()),
 		RobotESN:                robotESN,
@@ -342,7 +346,7 @@ func nbaNotificationForGame(game nbaEvent, config vars.NBAConfig, now time.Time)
 			if detail == "" {
 				detail = game.Status.Type.Detail
 			}
-			phrase := fmt.Sprintf("NBA score update. %s, %s. %s, %s. %s.", away.Team.DisplayName, scoreOrZero(away.Score), home.Team.DisplayName, scoreOrZero(home.Score), detail)
+			phrase := fmt.Sprintf("NBA score update. %s, %s. %s, %s. %s.", away.Team.DisplayName, scoreOrZero(away.Score), home.Team.DisplayName, scoreOrZero(home.Score), spokenNBAGameDetail(detail))
 			return "live", phrase, true
 		}
 	case "post":
@@ -475,6 +479,41 @@ func scoreOrZero(score string) string {
 		return "0"
 	}
 	return score
+}
+
+func spokenNBAGameDetail(detail string) string {
+	detail = strings.TrimSpace(detail)
+	match := nbaSpokenClockPattern.FindStringSubmatch(detail)
+	if len(match) != 4 {
+		return strings.ReplaceAll(detail, " - ", ", ")
+	}
+	minutes, _ := strconv.Atoi(match[1])
+	seconds, _ := strconv.Atoi(match[2])
+	timeParts := make([]string, 0, 2)
+	if minutes > 0 {
+		timeParts = append(timeParts, fmt.Sprintf("%d %s", minutes, pluralize(minutes, "minute", "minutes")))
+	}
+	if seconds > 0 {
+		timeParts = append(timeParts, fmt.Sprintf("%d %s", seconds, pluralize(seconds, "second", "seconds")))
+	}
+	if len(timeParts) == 0 {
+		timeParts = append(timeParts, "no time")
+	}
+	period := map[string]string{
+		"1st": "the first quarter",
+		"2nd": "the second quarter",
+		"3rd": "the third quarter",
+		"4th": "the fourth quarter",
+		"ot":  "overtime",
+	}[strings.ToLower(match[3])]
+	return strings.Join(timeParts, " ") + " left in " + period
+}
+
+func pluralize(value int, singular, plural string) string {
+	if value == 1 {
+		return singular
+	}
+	return plural
 }
 
 func maxInt(a, b int) int {
