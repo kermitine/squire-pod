@@ -155,47 +155,16 @@ func TestWaitForReminderImageHonorsCancellation(t *testing.T) {
 	}
 }
 
-func TestPersonApproachTargetStopsShortOfFace(t *testing.T) {
-	robotPose := &vectorpb.PoseStruct{X: 0, Y: 0, OriginId: 7}
-	facePose := &vectorpb.PoseStruct{X: 1000, Y: 0, OriginId: 7}
+func TestFaceObservationDoesNotRequireMappedPose(t *testing.T) {
+	observations := &faceSearchObservations{}
+	observations.observe(&vectorpb.Event{
+		EventType: &vectorpb.Event_RobotObservedFace{
+			RobotObservedFace: &vectorpb.RobotObservedFace{FaceId: -7},
+		},
+	})
 
-	x, y, heading, shouldMove := personApproachTarget(robotPose, facePose)
-	if !shouldMove {
-		t.Fatal("personApproachTarget() should move")
-	}
-	if x != 750 || y != 0 || heading != 0 {
-		t.Fatalf("personApproachTarget() = (%v, %v, %v), want (750, 0, 0)", x, y, heading)
-	}
-}
-
-func TestPersonApproachTargetCapsTravel(t *testing.T) {
-	robotPose := &vectorpb.PoseStruct{X: 100, Y: 100, OriginId: 7}
-	facePose := &vectorpb.PoseStruct{X: 2100, Y: 100, OriginId: 7}
-
-	x, y, _, shouldMove := personApproachTarget(robotPose, facePose)
-	if !shouldMove || x != 1100 || y != 100 {
-		t.Fatalf("personApproachTarget() = (%v, %v, move=%v), want (1100, 100, true)", x, y, shouldMove)
-	}
-}
-
-func TestPersonApproachTargetRejectsUnsafePose(t *testing.T) {
-	tests := []struct {
-		name  string
-		robot *vectorpb.PoseStruct
-		face  *vectorpb.PoseStruct
-	}{
-		{name: "missing pose", robot: nil, face: &vectorpb.PoseStruct{OriginId: 1}},
-		{name: "unknown origin", robot: &vectorpb.PoseStruct{}, face: &vectorpb.PoseStruct{}},
-		{name: "different origins", robot: &vectorpb.PoseStruct{OriginId: 1}, face: &vectorpb.PoseStruct{X: 500, OriginId: 2}},
-		{name: "already close", robot: &vectorpb.PoseStruct{OriginId: 1}, face: &vectorpb.PoseStruct{X: 200, OriginId: 1}},
-		{name: "implausibly far", robot: &vectorpb.PoseStruct{OriginId: 1}, face: &vectorpb.PoseStruct{X: 6000, OriginId: 1}},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if _, _, _, shouldMove := personApproachTarget(tt.robot, tt.face); shouldMove {
-				t.Fatal("personApproachTarget() should reject unsafe pose")
-			}
-		})
+	faceID, found := observations.face()
+	if !found || faceID != -7 {
+		t.Fatalf("face() = (%d, %v), want (-7, true)", faceID, found)
 	}
 }

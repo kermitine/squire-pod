@@ -63,10 +63,8 @@ const (
 	reminderImageDisplayDuration = 3 * time.Second
 	reminderImageSettleDelay     = 250 * time.Millisecond
 	reminderFaceSearchTimeout    = 12 * time.Second
-	reminderApproachTimeout      = 20 * time.Second
-	reminderPersonStopDistance   = 250.0 // millimeters
-	reminderMaxApproachDistance  = 1000.0
-	reminderApproachActionTag    = 2400001
+	reminderFaceTurnTimeout      = 6 * time.Second
+	reminderFaceTurnActionTag    = 2400001
 )
 
 var (
@@ -234,7 +232,7 @@ func processTask(task Task) {
 		return
 	}
 
-	approachPersonForReminder(ctx, robot)
+	facePersonForReminder(ctx, robot)
 	if !taskIsCurrent(task) {
 		return
 	}
@@ -330,9 +328,9 @@ func processTask(task Task) {
 }
 
 type faceSearchObservations struct {
-	mu        sync.Mutex
-	robotPose *vectorpb.PoseStruct
-	faces     map[int32]*vectorpb.PoseStruct
+	mu     sync.Mutex
+	faceID int32
+	found  bool
 }
 
 func (o *faceSearchObservations) observe(event *vectorpb.Event) {
@@ -342,50 +340,22 @@ func (o *faceSearchObservations) observe(event *vectorpb.Event) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 
-	if state := event.GetRobotState(); state != nil && state.GetPose() != nil {
-		o.robotPose = state.GetPose()
-	}
-	if face := event.GetRobotObservedFace(); face != nil && face.GetPose() != nil {
-		if o.faces == nil {
-			o.faces = make(map[int32]*vectorpb.PoseStruct)
-		}
-		o.faces[face.GetFaceId()] = face.GetPose()
+	if face := event.GetRobotObservedFace(); face != nil {
+		o.faceID = face.GetFaceId()
+		o.found = true
 	}
 }
 
-func (o *faceSearchObservations) closestFace() (*vectorpb.PoseStruct, *vectorpb.PoseStruct) {
+func (o *faceSearchObservations) face() (int32, bool) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	if o.robotPose == nil {
-		return nil, nil
-	}
-
-	var closest *vectorpb.PoseStruct
-	closestDistance := math.MaxFloat64
-	for _, face := range o.faces {
-		if face == nil || face.GetOriginId() == 0 || face.GetOriginId() != o.robotPose.GetOriginId() {
-			continue
-		}
-		distance := math.Hypot(float64(face.GetX()-o.robotPose.GetX()), float64(face.GetY()-o.robotPose.GetY()))
-		if distance < closestDistance {
-			closest = face
-			closestDistance = distance
-		}
-	}
-	return o.robotPose, closest
+	return o.faceID, o.found
 }
 
-func (o *faceSearchObservations) sawFace() bool {
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	return len(o.faces) > 0
-}
-
-// FindFaces runs Vector's native face-search behavior. While it runs, collect
-// mapped face positions so the navigation stack can safely approach the nearest
-// visible person. Every step is best-effort so a failed search or route never
-// suppresses the reminder itself.
-func approachPersonForReminder(ctx context.Context, robot *vector.Vector) {
+// FindFaces runs Vector's native face-search behavior. If the event stream
+// reports a tracked face, explicitly turn toward it. Reminder face seeking is
+// deliberately rotation-only: Vector must never drive toward a person here.
+func facePersonForReminder(ctx context.Context, robot *vector.Vector) {
 	searchCtx, cancel := context.WithTimeout(ctx, reminderFaceSearchTimeout)
 	observations := &faceSearchObservations{}
 	if _, err := robot.Conn.EnableFaceDetection(searchCtx, &vectorpb.EnableFaceDetectionRequest{Enable: true}); err != nil {
@@ -425,12 +395,10 @@ func approachPersonForReminder(ctx context.Context, robot *vector.Vector) {
 	}
 	cancel()
 
-	robotPose, facePose := observations.closestFace()
-	if facePose == nil {
-		if observations.sawFace() {
-			logger.Println("Productivity: Saw a person but could not map a safe approach position; continuing")
-		} else if searchCompleted {
-			logger.Println("Productivity: Facing person, but no mapped face position was reported; continuing")
+	faceID, faceObserved := observations.face()
+	if !faceObserved {
+		if searchCompleted {
+			logger.Println("Productivity: Face search completed without a trackable face; continuing")
 		} else if searchTimedOut {
 			logger.Println("Productivity: No face observed before reminder; continuing")
 		} else if err != nil {
@@ -440,51 +408,25 @@ func approachPersonForReminder(ctx context.Context, robot *vector.Vector) {
 		}
 		return
 	}
-	logger.Println("Productivity: Face observed and mapped for reminder")
 
-	targetX, targetY, targetHeading, shouldMove := personApproachTarget(robotPose, facePose)
-	if !shouldMove {
-		logger.Println("Productivity: Person is already close or has no safe mapped position; continuing")
-		return
-	}
-
-	logger.Println("Productivity: Approaching person before delivering reminder")
-	approachCtx, approachCancel := context.WithTimeout(ctx, reminderApproachTimeout)
-	defer approachCancel()
-	approachResponse, err := robot.Conn.GoToPose(approachCtx, &vectorpb.GoToPoseRequest{
-		XMm:        targetX,
-		YMm:        targetY,
-		Rad:        targetHeading,
-		IdTag:      reminderApproachActionTag,
-		NumRetries: 1,
+	logger.Println("Productivity: Turning toward observed face for reminder")
+	turnCtx, turnCancel := context.WithTimeout(ctx, reminderFaceTurnTimeout)
+	defer turnCancel()
+	turnResponse, err := robot.Conn.TurnTowardsFace(turnCtx, &vectorpb.TurnTowardsFaceRequest{
+		FaceId:          faceID,
+		MaxTurnAngleRad: float32(math.Pi),
+		IdTag:           reminderFaceTurnActionTag,
+		NumRetries:      1,
 	})
 	if err != nil {
-		logger.Println("Productivity: Could not approach person safely; continuing: " + err.Error())
+		logger.Println("Productivity: Could not turn toward face; continuing: " + err.Error())
 		return
 	}
-	if approachResponse.GetResult() == nil || approachResponse.GetResult().GetCode() != vectorpb.ActionResult_ACTION_RESULT_SUCCESS {
-		logger.Println("Productivity: Approach stopped before reaching person; continuing")
+	if turnResponse.GetResult() == nil || turnResponse.GetResult().GetCode() != vectorpb.ActionResult_ACTION_RESULT_SUCCESS {
+		logger.Println("Productivity: Face turn did not complete; continuing")
 		return
 	}
-	logger.Println("Productivity: Reached reminder delivery position")
-}
-
-func personApproachTarget(robotPose, facePose *vectorpb.PoseStruct) (float32, float32, float32, bool) {
-	if robotPose == nil || facePose == nil || robotPose.GetOriginId() == 0 || robotPose.GetOriginId() != facePose.GetOriginId() {
-		return 0, 0, 0, false
-	}
-	dx := float64(facePose.GetX() - robotPose.GetX())
-	dy := float64(facePose.GetY() - robotPose.GetY())
-	distance := math.Hypot(dx, dy)
-	if distance <= reminderPersonStopDistance || distance > 5000 {
-		return 0, 0, 0, false
-	}
-	travel := math.Min(distance-reminderPersonStopDistance, reminderMaxApproachDistance)
-	scale := travel / distance
-	return robotPose.GetX() + float32(dx*scale),
-		robotPose.GetY() + float32(dy*scale),
-		float32(math.Atan2(dy, dx)),
-		true
+	logger.Println("Productivity: Facing person for reminder")
 }
 
 // DisplayFaceImageRGB only confirms that the face-image chunks were submitted;
