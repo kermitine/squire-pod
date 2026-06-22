@@ -187,6 +187,17 @@ func TestFaceScanIsOneFullRotation(t *testing.T) {
 	}
 }
 
+func TestReminderHeadAngleIsRaisedForScanningAndViewing(t *testing.T) {
+	request := reminderHeadAngleRequest()
+	wantAngle := float32(20 * math.Pi / 180)
+	if math.Abs(float64(request.AngleRad-wantAngle)) > 0.000001 {
+		t.Fatalf("head angle = %v, want %v", request.AngleRad, wantAngle)
+	}
+	if request.MaxSpeedRadPerSec <= 0 || request.AccelRadPerSec2 <= 0 || request.IdTag != reminderHeadActionTag {
+		t.Fatalf("head angle request is incomplete: %#v", request)
+	}
+}
+
 func TestConvertImageToVectorFaceDataPacking(t *testing.T) {
 	tests := []struct {
 		name      string

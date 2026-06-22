@@ -75,9 +75,12 @@ const (
 	reminderFaceSearchTimeout    = 35 * time.Second
 	reminderInitialFaceCheck     = 2 * time.Second
 	reminderFaceTurnTimeout      = 6 * time.Second
+	reminderHeadMoveTimeout      = 5 * time.Second
 	reminderFaceTurnActionTag    = 2400001
 	reminderFaceScanActionTag    = 2400002
+	reminderHeadActionTag        = 2400003
 	reminderFaceScanStepAngle    = math.Pi / 9
+	reminderViewingHeadAngle     = 20 * math.Pi / 180
 	reminderFaceScanSpeed        = 1.0
 	reminderFaceScanPause        = 250 * time.Millisecond
 	reminderFaceScanMaxSteps     = 18
@@ -511,6 +514,9 @@ func (o *faceSearchObservations) face() (int32, bool) {
 // then explicitly face it. Reminder face seeking is deliberately rotation-only:
 // Vector must never drive toward a person here.
 func facePersonForReminder(ctx context.Context, robot *vector.Vector) {
+	positionReminderHeadForViewing(ctx, robot, "before face scan")
+	defer positionReminderHeadForViewing(ctx, robot, "before reminder display")
+
 	searchCtx, cancel := context.WithTimeout(ctx, reminderFaceSearchTimeout)
 	observations := &faceSearchObservations{}
 	if _, err := robot.Conn.EnableFaceDetection(searchCtx, &vectorpb.EnableFaceDetectionRequest{Enable: true}); err != nil {
@@ -617,6 +623,30 @@ scanLoop:
 		return
 	}
 	logger.Println("Productivity: Facing person for reminder")
+}
+
+func positionReminderHeadForViewing(ctx context.Context, robot *vector.Vector, reason string) {
+	headCtx, cancel := context.WithTimeout(ctx, reminderHeadMoveTimeout)
+	defer cancel()
+	response, err := robot.Conn.SetHeadAngle(headCtx, reminderHeadAngleRequest())
+	if err != nil {
+		logger.Println("Productivity: Could not position head " + reason + ": " + err.Error())
+		return
+	}
+	if response == nil || response.GetResult() == nil || response.GetResult().GetCode() != vectorpb.ActionResult_ACTION_RESULT_SUCCESS {
+		logger.Println("Productivity: Head positioning did not complete " + reason)
+	}
+}
+
+func reminderHeadAngleRequest() *vectorpb.SetHeadAngleRequest {
+	return &vectorpb.SetHeadAngleRequest{
+		AngleRad:          float32(reminderViewingHeadAngle),
+		MaxSpeedRadPerSec: 10,
+		AccelRadPerSec2:   10,
+		DurationSec:       0,
+		IdTag:             reminderHeadActionTag,
+		NumRetries:        1,
+	}
 }
 
 // DisplayFaceImageRGB only confirms that the face-image chunks were submitted;
