@@ -151,6 +151,7 @@ type ProductivityConfig struct {
 	Username     string `json:"username"`
 	Password     string `json:"password"`
 	TargetRobot  string `json:"target_robot"`
+	Timezone     string `json:"timezone"`
 	ManualConfig string `json:"manual_config"`
 }
 

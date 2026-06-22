@@ -46,3 +46,5 @@
 /wire-pod-productivity-images
 /chipper/.gocache
 /chipper/.gomodcache
+.test-gocache
+.test-gopath

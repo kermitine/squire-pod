@@ -230,6 +230,7 @@ func handleSetProductivityAPI(w http.ResponseWriter, r *http.Request) {
 	username := r.FormValue("username")
 	password := r.FormValue("password")
 	targetRobot := r.FormValue("target_robot")
+	timezone := strings.TrimSpace(r.FormValue("timezone"))
 	manualConfig := strings.TrimSpace(r.FormValue("manual_config"))
 	if manualConfig == "" {
 		manualConfig = "[]"
@@ -257,6 +258,7 @@ func handleSetProductivityAPI(w http.ResponseWriter, r *http.Request) {
 	vars.APIConfig.Productivity.Username = strings.TrimSpace(username)
 	vars.APIConfig.Productivity.Password = strings.TrimSpace(password)
 	vars.APIConfig.Productivity.TargetRobot = strings.TrimSpace(targetRobot)
+	vars.APIConfig.Productivity.Timezone = timezone
 	vars.APIConfig.Productivity.ManualConfig = manualConfig
 
 	files := r.MultipartForm.File["files"]

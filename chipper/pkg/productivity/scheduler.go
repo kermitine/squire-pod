@@ -182,7 +182,7 @@ func checkManualReminders(esn string, configStr string, generation uint64) {
 	if err := json.Unmarshal([]byte(configStr), &reminders); err != nil {
 		return
 	}
-	now := time.Now()
+	now := timeInProductivityTimezone(time.Now(), vars.APIConfig.Productivity.Timezone)
 	currentDay := now.Format("Mon")
 	currentHHMM := now.Format("15:04")
 	currentMinute := now.Minute()
@@ -266,6 +266,20 @@ func checkManualReminders(esn string, configStr string, generation uint64) {
 			}
 		}
 	}
+}
+
+// Reminder times come from an HTML time input and therefore represent the
+// browser's wall clock, not necessarily the server's. This matters especially
+// in Docker, whose clock commonly defaults to UTC.
+func timeInProductivityTimezone(now time.Time, timezone string) time.Time {
+	if timezone == "" {
+		return now
+	}
+	location, err := time.LoadLocation(timezone)
+	if err != nil {
+		return now
+	}
+	return now.In(location)
 }
 
 func handleRandomInterval(id string, min int, max int) bool {

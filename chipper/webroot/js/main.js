@@ -615,6 +615,7 @@ function sendProductivityAPIKey() {
   formData.append("provider", provider);
   formData.append("target_robot", getE("targetBot").value);
   formData.append("key", getE("prodApiKey").value);
+  formData.append("timezone", Intl.DateTimeFormat().resolvedOptions().timeZone || "");
   
   const manualConfigArray = collectManualConfigData(formData);
   formData.append("manual_config", JSON.stringify(manualConfigArray));
