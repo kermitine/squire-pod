@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 	"unicode"
@@ -61,6 +62,11 @@ const (
 
 	reminderImageDisplayDuration = 3 * time.Second
 	reminderImageSettleDelay     = 250 * time.Millisecond
+	reminderFaceSearchTimeout    = 12 * time.Second
+	reminderApproachTimeout      = 20 * time.Second
+	reminderPersonStopDistance   = 250.0 // millimeters
+	reminderMaxApproachDistance  = 1000.0
+	reminderApproachActionTag    = 2400001
 )
 
 var (
@@ -228,6 +234,11 @@ func processTask(task Task) {
 		return
 	}
 
+	approachPersonForReminder(ctx, robot)
+	if !taskIsCurrent(task) {
+		return
+	}
+
 	if task.Image != "" {
 		fullPath := filepath.Join(ProductivityImgPath, task.Image)
 		if _, err := os.Stat(fullPath); err == nil {
@@ -316,6 +327,155 @@ func processTask(task Task) {
 			snoozeTask(task)
 		}
 	}
+}
+
+type faceSearchObservations struct {
+	mu        sync.Mutex
+	robotPose *vectorpb.PoseStruct
+	faces     map[int32]*vectorpb.PoseStruct
+}
+
+func (o *faceSearchObservations) observe(event *vectorpb.Event) {
+	if event == nil {
+		return
+	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	if state := event.GetRobotState(); state != nil && state.GetPose() != nil {
+		o.robotPose = state.GetPose()
+	}
+	if face := event.GetRobotObservedFace(); face != nil && face.GetPose() != nil {
+		if o.faces == nil {
+			o.faces = make(map[int32]*vectorpb.PoseStruct)
+		}
+		o.faces[face.GetFaceId()] = face.GetPose()
+	}
+}
+
+func (o *faceSearchObservations) closestFace() (*vectorpb.PoseStruct, *vectorpb.PoseStruct) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.robotPose == nil {
+		return nil, nil
+	}
+
+	var closest *vectorpb.PoseStruct
+	closestDistance := math.MaxFloat64
+	for _, face := range o.faces {
+		if face == nil || face.GetOriginId() == 0 || face.GetOriginId() != o.robotPose.GetOriginId() {
+			continue
+		}
+		distance := math.Hypot(float64(face.GetX()-o.robotPose.GetX()), float64(face.GetY()-o.robotPose.GetY()))
+		if distance < closestDistance {
+			closest = face
+			closestDistance = distance
+		}
+	}
+	return o.robotPose, closest
+}
+
+// FindFaces runs Vector's native face-search behavior. While it runs, collect
+// mapped face positions so the navigation stack can safely approach the nearest
+// visible person. Every step is best-effort so a failed search or route never
+// suppresses the reminder itself.
+func approachPersonForReminder(ctx context.Context, robot *vector.Vector) {
+	searchCtx, cancel := context.WithTimeout(ctx, reminderFaceSearchTimeout)
+	observations := &faceSearchObservations{}
+	eventStream, eventErr := robot.Conn.EventStream(searchCtx, &vectorpb.EventRequest{
+		ListType: &vectorpb.EventRequest_WhiteList{
+			WhiteList: &vectorpb.FilterList{List: []string{"robot_state", "robot_observed_face"}},
+		},
+	})
+	if eventErr == nil {
+		go func() {
+			for {
+				response, err := eventStream.Recv()
+				if err != nil {
+					return
+				}
+				observations.observe(response.GetEvent())
+			}
+		}()
+	} else {
+		logger.Println("Productivity: Could not observe face position; will only turn toward a person: " + eventErr.Error())
+	}
+
+	logger.Println("Productivity: Looking for a person before delivering reminder")
+	response, err := robot.Conn.FindFaces(searchCtx, &vectorpb.FindFacesRequest{})
+	if err != nil {
+		searchTimedOut := searchCtx.Err() != nil
+		cancel()
+		if searchTimedOut {
+			logger.Println("Productivity: No face found before reminder; continuing")
+		} else {
+			logger.Println("Productivity: Face search failed; continuing: " + err.Error())
+		}
+		return
+	}
+	if response.GetResult() != vectorpb.BehaviorResults_BEHAVIOR_COMPLETE_STATE {
+		cancel()
+		logger.Println("Productivity: Face search did not find an available person; continuing")
+		return
+	}
+	logger.Println("Productivity: Facing person for reminder")
+
+	// The face event usually arrives just before FindFaces completes. Give the
+	// event stream a brief chance to deliver it before taking the snapshot.
+	settleTimer := time.NewTimer(300 * time.Millisecond)
+	select {
+	case <-ctx.Done():
+		settleTimer.Stop()
+		cancel()
+		return
+	case <-settleTimer.C:
+	}
+	cancel()
+
+	robotPose, facePose := observations.closestFace()
+	targetX, targetY, targetHeading, shouldMove := personApproachTarget(robotPose, facePose)
+	if !shouldMove {
+		logger.Println("Productivity: Person is already close or has no safe mapped position; continuing")
+		return
+	}
+
+	logger.Println("Productivity: Approaching person before delivering reminder")
+	approachCtx, approachCancel := context.WithTimeout(ctx, reminderApproachTimeout)
+	defer approachCancel()
+	approachResponse, err := robot.Conn.GoToPose(approachCtx, &vectorpb.GoToPoseRequest{
+		XMm:        targetX,
+		YMm:        targetY,
+		Rad:        targetHeading,
+		IdTag:      reminderApproachActionTag,
+		NumRetries: 1,
+	})
+	if err != nil {
+		logger.Println("Productivity: Could not approach person safely; continuing: " + err.Error())
+		return
+	}
+	if approachResponse.GetResult() == nil || approachResponse.GetResult().GetCode() != vectorpb.ActionResult_ACTION_RESULT_SUCCESS {
+		logger.Println("Productivity: Approach stopped before reaching person; continuing")
+		return
+	}
+	logger.Println("Productivity: Reached reminder delivery position")
+}
+
+func personApproachTarget(robotPose, facePose *vectorpb.PoseStruct) (float32, float32, float32, bool) {
+	if robotPose == nil || facePose == nil || robotPose.GetOriginId() == 0 || robotPose.GetOriginId() != facePose.GetOriginId() {
+		return 0, 0, 0, false
+	}
+	dx := float64(facePose.GetX() - robotPose.GetX())
+	dy := float64(facePose.GetY() - robotPose.GetY())
+	distance := math.Hypot(dx, dy)
+	if distance <= reminderPersonStopDistance || distance > 5000 {
+		return 0, 0, 0, false
+	}
+	travel := math.Min(distance-reminderPersonStopDistance, reminderMaxApproachDistance)
+	scale := travel / distance
+	return robotPose.GetX() + float32(dx*scale),
+		robotPose.GetY() + float32(dy*scale),
+		float32(math.Atan2(dy, dx)),
+		true
 }
 
 // DisplayFaceImageRGB only confirms that the face-image chunks were submitted;
