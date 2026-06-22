@@ -3,10 +3,10 @@ name: rocket-pod
 services:
   rocket-pod:
     container_name: rocket-pod
-    # Keep the container hostname aligned with the LAN name advertised by mDNS.
     hostname: escapepod
     image: rocket-pod:latest
     pull_policy: never
+    network_mode: host
     build:
       context: .
       dockerfile: dockerfile
