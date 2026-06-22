@@ -140,6 +140,21 @@ func TestRenderNBAPerformerFace(t *testing.T) {
 	}
 }
 
+func TestNBAFinalTaskPagesIncludeOrderedSpeech(t *testing.T) {
+	performer := nbaTopPerformer{Name: "Test Player", Points: 31, Rebounds: 1, Assists: 1}
+	pages := nbaFinalTaskPages([]byte{1}, []byte{2}, "Final score speech.", performer)
+	if len(pages) != 2 {
+		t.Fatalf("nbaFinalTaskPages() returned %d pages, want 2", len(pages))
+	}
+	if pages[0].Speech != "Final score speech." || pages[0].FaceData[0] != 1 {
+		t.Fatalf("scoreboard page = %#v", pages[0])
+	}
+	wantPerformerSpeech := "Top performer, Test Player, with 31 points, 1 rebound, and 1 assist."
+	if pages[1].Speech != wantPerformerSpeech || pages[1].FaceData[0] != 2 {
+		t.Fatalf("performer page = %#v, want speech %q", pages[1], wantPerformerSpeech)
+	}
+}
+
 func TestNBAFinalNotificationAndFaceRender(t *testing.T) {
 	resetNBANotificationState()
 	now := time.Date(2026, time.January, 2, 1, 0, 0, 0, time.UTC)

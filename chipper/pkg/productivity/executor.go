@@ -38,11 +38,17 @@ type Task struct {
 	Image                   string
 	FaceData                []byte
 	AdditionalFaceData      [][]byte
+	Pages                   []TaskPage
 	Source                  string
 	RetryCount              int
 	RequireConfirmation     bool
 	SnoozeMinutes           int
 	configurationGeneration uint64
+}
+
+type TaskPage struct {
+	FaceData []byte
+	Speech   string
 }
 
 type systemIntentResponseStruct struct {
@@ -64,6 +70,7 @@ const (
 
 	reminderImageDisplayDuration = 3 * time.Second
 	reminderImageSettleDelay     = 250 * time.Millisecond
+	reminderPageMinimumDuration  = 10 * time.Second
 	reminderFaceSearchTimeout    = 35 * time.Second
 	reminderInitialFaceCheck     = 2 * time.Second
 	reminderFaceTurnTimeout      = 6 * time.Second
@@ -247,7 +254,12 @@ func processTask(task Task) {
 		return
 	}
 
-	if len(task.FaceData) > 0 {
+	pagesHandled := len(task.Pages) > 0
+	if pagesHandled {
+		if !processTaskPages(ctx, robot, task.Pages) {
+			return
+		}
+	} else if len(task.FaceData) > 0 {
 		if !displayReminderFaceData(ctx, robot, task.FaceData, "Dynamic face image") {
 			return
 		}
@@ -272,16 +284,18 @@ func processTask(task Task) {
 			logger.Println("Productivity: Face image is unavailable: " + err.Error())
 		}
 	}
-	for _, faceData := range task.AdditionalFaceData {
-		if len(faceData) > 0 && !displayReminderFaceData(ctx, robot, faceData, "Additional face image") {
-			return
+	if !pagesHandled {
+		for _, faceData := range task.AdditionalFaceData {
+			if len(faceData) > 0 && !displayReminderFaceData(ctx, robot, faceData, "Additional face image") {
+				return
+			}
 		}
 	}
 	if !taskIsCurrent(task) {
 		return
 	}
 
-	if len(task.Phrases) > 0 {
+	if !pagesHandled && len(task.Phrases) > 0 {
 		phrase := task.Phrases[rand.Intn(len(task.Phrases))]
 		if phrase != "" {
 			if _, err := robot.Conn.SayText(ctx, &vectorpb.SayTextRequest{
@@ -343,6 +357,83 @@ func processTask(task Task) {
 			}
 			snoozeTask(task)
 		}
+	}
+}
+
+func processTaskPages(ctx context.Context, robot *vector.Vector, pages []TaskPage) bool {
+	for index, page := range pages {
+		if len(page.FaceData) > 0 {
+			duration := estimatedReminderSpeechDuration(page.Speech) + 2*time.Second
+			if duration < reminderPageMinimumDuration {
+				duration = reminderPageMinimumDuration
+			}
+			if _, err := robot.Conn.DisplayFaceImageRGB(ctx, &vectorpb.DisplayFaceImageRGBRequest{
+				FaceData:         page.FaceData,
+				DurationMs:       uint32(duration / time.Millisecond),
+				InterruptRunning: true,
+			}); err != nil {
+				logger.Println(fmt.Sprintf("Productivity: Page %d face image display failed: %v", index+1, err))
+			} else if !waitForReminderPageSettle(ctx) {
+				return false
+			}
+		}
+		if page.Speech == "" {
+			continue
+		}
+		response, err := robot.Conn.SayText(ctx, &vectorpb.SayTextRequest{
+			Text:           page.Speech,
+			UseVectorVoice: true,
+			DurationScalar: 1.0,
+		})
+		if err != nil {
+			logger.Println(fmt.Sprintf("Productivity: Page %d speech failed: %v", index+1, err))
+			continue
+		}
+		if response == nil || response.GetState() != vectorpb.SayTextResponse_FINISHED {
+			state := "missing"
+			if response != nil {
+				state = response.GetState().String()
+			}
+			logger.Println(fmt.Sprintf("Productivity: Page %d speech returned state %s; waiting before advancing", index+1, state))
+			if !waitForReminderSpeechFallback(ctx, page.Speech) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func estimatedReminderSpeechDuration(text string) time.Duration {
+	wordCount := len(strings.Fields(text))
+	if wordCount == 0 {
+		return 0
+	}
+	duration := time.Second + time.Duration(wordCount)*400*time.Millisecond
+	if duration > 20*time.Second {
+		return 20 * time.Second
+	}
+	return duration
+}
+
+func waitForReminderPageSettle(ctx context.Context) bool {
+	timer := time.NewTimer(reminderImageSettleDelay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
+}
+
+func waitForReminderSpeechFallback(ctx context.Context, speech string) bool {
+	timer := time.NewTimer(estimatedReminderSpeechDuration(speech))
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
 	}
 }
 

@@ -158,6 +158,14 @@ func TestWaitForReminderImageHonorsCancellation(t *testing.T) {
 	}
 }
 
+func TestEstimatedReminderSpeechDuration(t *testing.T) {
+	short := estimatedReminderSpeechDuration("Final score")
+	long := estimatedReminderSpeechDuration("Top performer with twenty points ten rebounds and twelve assists")
+	if short <= 0 || long <= short {
+		t.Fatalf("speech duration estimates short=%v long=%v", short, long)
+	}
+}
+
 func TestFaceObservationDoesNotRequireMappedPose(t *testing.T) {
 	observations := &faceSearchObservations{}
 	observations.observe(&vectorpb.Event{

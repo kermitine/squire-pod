@@ -246,9 +246,7 @@ func InjectTestNBAFinalUpdate(robotESN string) error {
 	task := Task{
 		ID:                      fmt.Sprintf("nba_final_test_%d", time.Now().UnixNano()),
 		RobotESN:                robotESN,
-		Phrases:                 []string{phrase},
-		FaceData:                scoreFace,
-		AdditionalFaceData:      [][]byte{performerFace},
+		Pages:                   nbaFinalTaskPages(scoreFace, performerFace, phrase, performer),
 		Source:                  "test",
 		configurationGeneration: currentConfigurationGeneration(),
 	}
@@ -414,8 +412,10 @@ func checkNBAGames() {
 			logger.Println("Productivity: NBA score image failed: " + renderErr.Error())
 		}
 		var additionalFaceData [][]byte
+		var performer nbaTopPerformer
 		if kind == "final" {
-			performer, performerErr := fetchNBATopPerformer(ctx, game.ID)
+			var performerErr error
+			performer, performerErr = fetchNBATopPerformer(ctx, game.ID)
 			if performerErr != nil {
 				logger.Println("Productivity: NBA top performer unavailable for game " + game.ID + ": " + performerErr.Error())
 			} else if performerFace, performerRenderErr := renderNBAPerformerFace(ctx, performer); performerRenderErr != nil {
@@ -424,12 +424,17 @@ func checkNBAGames() {
 				additionalFaceData = append(additionalFaceData, performerFace)
 			}
 		}
+		var pages []TaskPage
+		if kind == "final" && len(additionalFaceData) > 0 {
+			pages = nbaFinalTaskPages(faceData, additionalFaceData[0], phrase, performer)
+		}
 		task := Task{
 			ID:                      "nba_" + game.ID + "_" + kind,
 			RobotESN:                targetRobot,
 			Phrases:                 []string{phrase},
 			FaceData:                faceData,
 			AdditionalFaceData:      additionalFaceData,
+			Pages:                   pages,
 			Source:                  "nba",
 			configurationGeneration: generation,
 		}
@@ -441,6 +446,23 @@ func checkNBAGames() {
 			logger.Println("Productivity: Queue full, skipping NBA update for game " + game.ID)
 		}
 	}
+}
+
+func nbaFinalTaskPages(scoreFace, performerFace []byte, finalSpeech string, performer nbaTopPerformer) []TaskPage {
+	return []TaskPage{
+		{FaceData: scoreFace, Speech: finalSpeech},
+		{FaceData: performerFace, Speech: spokenNBAPerformer(performer)},
+	}
+}
+
+func spokenNBAPerformer(performer nbaTopPerformer) string {
+	return fmt.Sprintf(
+		"Top performer, %s, with %d %s, %d %s, and %d %s.",
+		performer.Name,
+		performer.Points, pluralize(performer.Points, "point", "points"),
+		performer.Rebounds, pluralize(performer.Rebounds, "rebound", "rebounds"),
+		performer.Assists, pluralize(performer.Assists, "assist", "assists"),
+	)
 }
 
 func fetchNBATopPerformer(ctx context.Context, gameID string) (nbaTopPerformer, error) {
