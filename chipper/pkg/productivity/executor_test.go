@@ -3,6 +3,7 @@ package productivity
 import (
 	"context"
 	"errors"
+	"math"
 	"sync/atomic"
 	"testing"
 
@@ -166,5 +167,12 @@ func TestFaceObservationDoesNotRequireMappedPose(t *testing.T) {
 	faceID, found := observations.face()
 	if !found || faceID != -7 {
 		t.Fatalf("face() = (%d, %v), want (-7, true)", faceID, found)
+	}
+}
+
+func TestFaceScanIsOneFullRotation(t *testing.T) {
+	totalAngle := reminderFaceScanStepAngle * reminderFaceScanMaxSteps
+	if math.Abs(totalAngle-2*math.Pi) > 0.000001 {
+		t.Fatalf("face scan angle = %v, want one full rotation", totalAngle)
 	}
 }

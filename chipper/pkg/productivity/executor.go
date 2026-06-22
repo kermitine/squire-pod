@@ -62,12 +62,16 @@ const (
 
 	reminderImageDisplayDuration = 3 * time.Second
 	reminderImageSettleDelay     = 250 * time.Millisecond
-	reminderFaceSearchTimeout    = 12 * time.Second
+	reminderFaceSearchTimeout    = 15 * time.Second
 	reminderFaceTurnTimeout      = 6 * time.Second
 	reminderFaceTurnActionTag    = 2400001
 	reminderFaceScanActionTag    = 2400002
-	reminderFaceScanStepAngle    = math.Pi / 6
-	reminderFaceScanSpeed        = 0.75
+	reminderFaceScanStepAngle    = math.Pi / 9
+	reminderFaceScanSpeed        = 1.0
+	reminderFaceScanPause        = 250 * time.Millisecond
+	reminderFaceScanMaxSteps     = 18
+	confirmationSpeechSettle     = 350 * time.Millisecond
+	confirmationSpeechRetryDelay = 500 * time.Millisecond
 )
 
 var (
@@ -312,22 +316,54 @@ func processTask(task Task) {
 
 		switch result {
 		case confirmationAccepted:
-			if _, err := robot.Conn.SayText(ctx, &vectorpb.SayTextRequest{Text: "Great!", UseVectorVoice: true}); err != nil {
+			if err := sayConfirmationResponse(ctx, robot, "Great!"); err != nil {
 				logger.Println("Productivity: Confirmation response speech failed: " + err.Error())
 			}
 			logger.Println("Productivity: Confirmation successful.")
 		case confirmationDeclined:
-			if _, err := robot.Conn.SayText(ctx, &vectorpb.SayTextRequest{Text: "Ok, I'll remind you again soon.", UseVectorVoice: true}); err != nil {
+			if err := sayConfirmationResponse(ctx, robot, "Ok, I'll remind you again soon."); err != nil {
 				logger.Println("Productivity: Confirmation response speech failed: " + err.Error())
 			}
 			snoozeTask(task)
 		default:
-			if _, err := robot.Conn.SayText(ctx, &vectorpb.SayTextRequest{Text: "I didn't hear anything. I'll remind you later.", UseVectorVoice: true}); err != nil {
+			if err := sayConfirmationResponse(ctx, robot, "I didn't hear anything. I'll remind you later."); err != nil {
 				logger.Println("Productivity: Confirmation response speech failed: " + err.Error())
 			}
 			snoozeTask(task)
 		}
 	}
+}
+
+// Voice-intent handling can still be releasing its audio and face tracks when
+// behavior control is granted back to us. Allow it to settle, then retry once
+// if SayText loses that short race.
+func sayConfirmationResponse(ctx context.Context, robot *vector.Vector, text string) error {
+	settleTimer := time.NewTimer(confirmationSpeechSettle)
+	select {
+	case <-ctx.Done():
+		settleTimer.Stop()
+		return ctx.Err()
+	case <-settleTimer.C:
+	}
+
+	var lastErr error
+	for attempt := 0; attempt < 2; attempt++ {
+		if _, err := robot.Conn.SayText(ctx, &vectorpb.SayTextRequest{Text: text, UseVectorVoice: true}); err == nil {
+			return nil
+		} else {
+			lastErr = err
+		}
+		if attempt == 0 {
+			retryTimer := time.NewTimer(confirmationSpeechRetryDelay)
+			select {
+			case <-ctx.Done():
+				retryTimer.Stop()
+				return ctx.Err()
+			case <-retryTimer.C:
+			}
+		}
+	}
+	return lastErr
 }
 
 type faceSearchObservations struct {
@@ -401,7 +437,8 @@ func facePersonForReminder(ctx context.Context, robot *vector.Vector) {
 	case <-searchCtx.Done():
 	}
 
-	for {
+scanLoop:
+	for step := 0; step < reminderFaceScanMaxSteps; step++ {
 		if _, found := observations.face(); found {
 			break
 		}
@@ -425,6 +462,17 @@ func facePersonForReminder(ctx context.Context, robot *vector.Vector) {
 		if turnResponse.GetResult() == nil || turnResponse.GetResult().GetCode() != vectorpb.ActionResult_ACTION_RESULT_SUCCESS {
 			logger.Println("Productivity: Face scan turn did not complete; continuing")
 			break
+		}
+
+		pauseTimer := time.NewTimer(reminderFaceScanPause)
+		select {
+		case <-faceSeen:
+			pauseTimer.Stop()
+			break scanLoop
+		case <-pauseTimer.C:
+		case <-searchCtx.Done():
+			pauseTimer.Stop()
+			break scanLoop
 		}
 	}
 	cancel()
