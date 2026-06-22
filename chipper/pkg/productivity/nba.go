@@ -26,7 +26,11 @@ import (
 	"golang.org/x/image/math/fixed"
 )
 
-const nbaScoreboardEndpoint = "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard"
+const (
+	nbaScoreboardEndpoint = "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard"
+	nbaSummaryEndpoint    = "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/summary"
+	nbaTeamScheduleURL    = "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams/%s/schedule?season=%d&seasontype=2"
+)
 
 var nbaTeamNames = map[string]string{
 	"ATL": "Atlanta Hawks", "BOS": "Boston Celtics", "BKN": "Brooklyn Nets",
@@ -45,6 +49,70 @@ var nbaSpokenClockPattern = regexp.MustCompile(`(?i)^\s*(\d+):(\d{2})\s*-\s*(1st
 
 type nbaScoreboard struct {
 	Events []nbaEvent `json:"events"`
+}
+
+type nbaSummary struct {
+	Boxscore struct {
+		Players []nbaBoxscoreTeam `json:"players"`
+	} `json:"boxscore"`
+}
+
+type nbaBoxscoreTeam struct {
+	Team struct {
+		Abbreviation string `json:"abbreviation"`
+		DisplayName  string `json:"displayName"`
+		Logo         string `json:"logo"`
+	} `json:"team"`
+	Statistics []nbaPlayerStatistics `json:"statistics"`
+}
+
+type nbaPlayerStatistics struct {
+	Labels   []string             `json:"labels"`
+	Athletes []nbaBoxscoreAthlete `json:"athletes"`
+}
+
+type nbaBoxscoreAthlete struct {
+	DidNotPlay bool `json:"didNotPlay"`
+	Starter    bool `json:"starter"`
+	Athlete    struct {
+		DisplayName string `json:"displayName"`
+		Headshot    struct {
+			Href string `json:"href"`
+		} `json:"headshot"`
+	} `json:"athlete"`
+	Stats []string `json:"stats"`
+}
+
+type nbaTopPerformer struct {
+	Name     string
+	Headshot string
+	TeamLogo string
+	Points   int
+	Rebounds int
+	Assists  int
+}
+
+type nbaTeamSchedule struct {
+	Events []struct {
+		ID           string `json:"id"`
+		Date         string `json:"date"`
+		Competitions []struct {
+			Status nbaStatus `json:"status"`
+		} `json:"competitions"`
+	} `json:"events"`
+}
+
+type nbaFinalTestPerformer struct {
+	TeamAbbreviation string
+	Name             string
+	Headshot         string
+}
+
+var nbaFinalTestFallbackPerformers = []nbaFinalTestPerformer{
+	{TeamAbbreviation: "LAL", Name: "LeBron James", Headshot: "https://a.espncdn.com/i/headshots/nba/players/full/1966.png"},
+	{TeamAbbreviation: "GS", Name: "Stephen Curry", Headshot: "https://a.espncdn.com/i/headshots/nba/players/full/3975.png"},
+	{TeamAbbreviation: "DEN", Name: "Nikola Jokic", Headshot: "https://a.espncdn.com/i/headshots/nba/players/full/3112335.png"},
+	{TeamAbbreviation: "MIL", Name: "Giannis Antetokounmpo", Headshot: "https://a.espncdn.com/i/headshots/nba/players/full/3032977.png"},
 }
 
 type nbaEvent struct {
@@ -124,7 +192,7 @@ func InjectTestNBAUpdate(robotESN string) error {
 		return fmt.Errorf("render score display: %w", err)
 	}
 	away, home, _ := nbaGameTeams(game)
-	phrase := fmt.Sprintf("NBA score update. %s, %s. %s, %s. %s.", away.Team.DisplayName, away.Score, home.Team.DisplayName, home.Score, spokenNBAGameDetail(game.Status.Type.ShortDetail))
+	phrase := fmt.Sprintf("NBA score update. %s, %s. %s, %s. %s.", spokenNBATeamName(away), away.Score, spokenNBATeamName(home), home.Score, spokenNBAGameDetail(game.Status.Type.ShortDetail))
 	task := Task{
 		ID:                      fmt.Sprintf("nba_test_%d", time.Now().UnixNano()),
 		RobotESN:                robotESN,
@@ -136,6 +204,57 @@ func InjectTestNBAUpdate(robotESN string) error {
 	select {
 	case taskQueue <- task:
 		logger.Println("Productivity: Random NBA test update queued")
+		return nil
+	default:
+		return fmt.Errorf("reminder queue is full")
+	}
+}
+
+// InjectTestNBAFinalUpdate queues a synthetic completed game so the final
+// scoreboard and top-performer card can be checked without waiting for a game.
+func InjectTestNBAFinalUpdate(robotESN string) error {
+	if robotESN == "" || robotESN == "None" {
+		robotESN = productivityTargetRobot()
+	}
+	if robotESN == "" {
+		return fmt.Errorf("no target robot is available")
+	}
+
+	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+	lookupCtx, lookupCancel := context.WithTimeout(context.Background(), 35*time.Second)
+	performerTeam, performer, err := fetchRandomNBAStarter(lookupCtx, rng, time.Now())
+	lookupCancel()
+	if err != nil {
+		logger.Println("Productivity: Live NBA starter lookup failed; using fallback: " + err.Error())
+		performerTeam, performer = fallbackNBAFinalTestStarter(rng)
+	} else {
+		logger.Println("Productivity: NBA final test selected starter " + performer.Name + " from " + performerTeam)
+	}
+	game, performer := randomNBAFinalTestGame(rng, performerTeam, performer)
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Second)
+	defer cancel()
+	scoreFace, err := renderNBAScoreFace(ctx, game, time.Local)
+	if err != nil {
+		return fmt.Errorf("render final score display: %w", err)
+	}
+	performerFace, err := renderNBAPerformerFace(ctx, performer)
+	if err != nil {
+		return fmt.Errorf("render top performer display: %w", err)
+	}
+	away, home, _ := nbaGameTeams(game)
+	phrase := fmt.Sprintf("Final NBA score. %s, %s. %s, %s.", spokenNBATeamName(away), away.Score, spokenNBATeamName(home), home.Score)
+	task := Task{
+		ID:                      fmt.Sprintf("nba_final_test_%d", time.Now().UnixNano()),
+		RobotESN:                robotESN,
+		Phrases:                 []string{phrase},
+		FaceData:                scoreFace,
+		AdditionalFaceData:      [][]byte{performerFace},
+		Source:                  "test",
+		configurationGeneration: currentConfigurationGeneration(),
+	}
+	select {
+	case taskQueue <- task:
+		logger.Println("Productivity: Random NBA final score test queued")
 		return nil
 	default:
 		return fmt.Errorf("reminder queue is full")
@@ -173,12 +292,70 @@ func randomNBATestGame(rng *rand.Rand) nbaEvent {
 	return game
 }
 
+func randomNBAFinalTestGame(rng *rand.Rand, performerTeam string, performer nbaTopPerformer) (nbaEvent, nbaTopPerformer) {
+	opponents := make([]string, 0, len(nbaTeamNames)-1)
+	for abbreviation := range nbaTeamNames {
+		if abbreviation != performerTeam {
+			opponents = append(opponents, abbreviation)
+		}
+	}
+	sort.Strings(opponents)
+	opponent := opponents[rng.Intn(len(opponents))]
+	performerIsAway := rng.Intn(2) == 0
+	awayAbbreviation, homeAbbreviation := opponent, performerTeam
+	if performerIsAway {
+		awayAbbreviation, homeAbbreviation = performerTeam, opponent
+	}
+	awayScore := 95 + rng.Intn(36)
+	homeScore := 95 + rng.Intn(36)
+	if awayScore == homeScore {
+		homeScore++
+	}
+
+	game := nbaEvent{ID: fmt.Sprintf("final-test-%d", time.Now().UnixNano()), Date: time.Now().Format(time.RFC3339)}
+	game.Status.Type.State = "post"
+	game.Status.Type.Name = "STATUS_FINAL"
+	game.Status.Type.Detail = "Final"
+	game.Status.Type.ShortDetail = "Final"
+	competition := nbaCompetition{Competitors: make([]nbaCompetitor, 2)}
+	setNBATestCompetitor(&competition.Competitors[0], "away", awayAbbreviation, awayScore)
+	setNBATestCompetitor(&competition.Competitors[1], "home", homeAbbreviation, homeScore)
+	game.Competitions = []nbaCompetition{competition}
+
+	teamLogo := competition.Competitors[1].Team.Logo
+	if performerIsAway {
+		teamLogo = competition.Competitors[0].Team.Logo
+	}
+	performer.TeamLogo = teamLogo
+	return game, performer
+}
+
+func fallbackNBAFinalTestStarter(rng *rand.Rand) (string, nbaTopPerformer) {
+	fixture := nbaFinalTestFallbackPerformers[rng.Intn(len(nbaFinalTestFallbackPerformers))]
+	return fixture.TeamAbbreviation, nbaTopPerformer{
+		Name:     fixture.Name,
+		Headshot: fixture.Headshot,
+		Points:   24 + rng.Intn(18),
+		Rebounds: 5 + rng.Intn(11),
+		Assists:  4 + rng.Intn(10),
+	}
+}
+
 func setNBATestCompetitor(competitor *nbaCompetitor, homeAway, abbreviation string, score int) {
 	competitor.HomeAway = homeAway
 	competitor.Score = fmt.Sprint(score)
 	competitor.Team.Abbreviation = abbreviation
 	competitor.Team.DisplayName = nbaTeamNames[abbreviation]
 	competitor.Team.Logo = fmt.Sprintf("https://a.espncdn.com/i/teamlogos/nba/500/scoreboard/%s.png", strings.ToLower(abbreviation))
+}
+
+func spokenNBATeamName(competitor nbaCompetitor) string {
+	// Vector's TTS expands "LA" as Louisiana, so use the unabbreviated city
+	// for the Clippers regardless of the display name returned by ESPN.
+	if strings.EqualFold(competitor.Team.Abbreviation, "LAC") {
+		return "Los Angeles Clippers"
+	}
+	return competitor.Team.DisplayName
 }
 
 func ordinalQuarter(quarter int) string {
@@ -236,11 +413,23 @@ func checkNBAGames() {
 		if renderErr != nil {
 			logger.Println("Productivity: NBA score image failed: " + renderErr.Error())
 		}
+		var additionalFaceData [][]byte
+		if kind == "final" {
+			performer, performerErr := fetchNBATopPerformer(ctx, game.ID)
+			if performerErr != nil {
+				logger.Println("Productivity: NBA top performer unavailable for game " + game.ID + ": " + performerErr.Error())
+			} else if performerFace, performerRenderErr := renderNBAPerformerFace(ctx, performer); performerRenderErr != nil {
+				logger.Println("Productivity: NBA top performer image failed: " + performerRenderErr.Error())
+			} else {
+				additionalFaceData = append(additionalFaceData, performerFace)
+			}
+		}
 		task := Task{
 			ID:                      "nba_" + game.ID + "_" + kind,
 			RobotESN:                targetRobot,
 			Phrases:                 []string{phrase},
 			FaceData:                faceData,
+			AdditionalFaceData:      additionalFaceData,
 			Source:                  "nba",
 			configurationGeneration: generation,
 		}
@@ -252,6 +441,201 @@ func checkNBAGames() {
 			logger.Println("Productivity: Queue full, skipping NBA update for game " + game.ID)
 		}
 	}
+}
+
+func fetchNBATopPerformer(ctx context.Context, gameID string) (nbaTopPerformer, error) {
+	summary, err := fetchNBASummary(ctx, gameID)
+	if err != nil {
+		return nbaTopPerformer{}, err
+	}
+	return selectNBATopPerformer(summary)
+}
+
+func fetchNBASummary(ctx context.Context, gameID string) (nbaSummary, error) {
+	url := fmt.Sprintf("%s?event=%s", nbaSummaryEndpoint, gameID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nbaSummary{}, err
+	}
+	resp, err := externalApiClient.Do(req)
+	if err != nil {
+		return nbaSummary{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nbaSummary{}, fmt.Errorf("game summary returned HTTP %d", resp.StatusCode)
+	}
+	var summary nbaSummary
+	if err := json.NewDecoder(resp.Body).Decode(&summary); err != nil {
+		return nbaSummary{}, err
+	}
+	return summary, nil
+}
+
+func fetchRandomNBAStarter(ctx context.Context, rng *rand.Rand, now time.Time) (string, nbaTopPerformer, error) {
+	teams := make([]string, 0, len(nbaTeamNames))
+	for abbreviation := range nbaTeamNames {
+		teams = append(teams, abbreviation)
+	}
+	rng.Shuffle(len(teams), func(i, j int) { teams[i], teams[j] = teams[j], teams[i] })
+	var lastErr error
+	for _, team := range teams {
+		gameID, err := fetchLatestCompletedNBAGame(ctx, team, now)
+		if err != nil {
+			lastErr = err
+			if ctx.Err() != nil {
+				break
+			}
+			continue
+		}
+		summary, err := fetchNBASummary(ctx, gameID)
+		if err != nil {
+			lastErr = err
+			if ctx.Err() != nil {
+				break
+			}
+			continue
+		}
+		performer, err := selectRandomNBAStarter(summary, team, rng)
+		if err == nil {
+			return team, performer, nil
+		}
+		lastErr = err
+	}
+	if lastErr == nil {
+		lastErr = fmt.Errorf("no NBA teams are available")
+	}
+	return "", nbaTopPerformer{}, lastErr
+}
+
+func fetchLatestCompletedNBAGame(ctx context.Context, team string, now time.Time) (string, error) {
+	season := nbaSeasonYear(now)
+	for _, year := range []int{season, season - 1} {
+		url := fmt.Sprintf(nbaTeamScheduleURL, strings.ToLower(team), year)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			return "", err
+		}
+		resp, err := externalApiClient.Do(req)
+		if err != nil {
+			return "", err
+		}
+		var schedule nbaTeamSchedule
+		decodeErr := json.NewDecoder(resp.Body).Decode(&schedule)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			return "", fmt.Errorf("team schedule returned HTTP %d", resp.StatusCode)
+		}
+		if decodeErr != nil {
+			return "", decodeErr
+		}
+		latestID, latestDate := "", time.Time{}
+		for _, event := range schedule.Events {
+			if len(event.Competitions) == 0 || !strings.EqualFold(event.Competitions[0].Status.Type.State, "post") {
+				continue
+			}
+			date, err := time.Parse(time.RFC3339, event.Date)
+			if err == nil && !date.After(now) && (latestID == "" || date.After(latestDate)) {
+				latestID, latestDate = event.ID, date
+			}
+		}
+		if latestID != "" {
+			return latestID, nil
+		}
+	}
+	return "", fmt.Errorf("no completed game found for %s", team)
+}
+
+func nbaSeasonYear(now time.Time) int {
+	year := now.Year()
+	if now.Month() >= time.October {
+		year++
+	}
+	return year
+}
+
+func selectRandomNBAStarter(summary nbaSummary, teamAbbreviation string, rng *rand.Rand) (nbaTopPerformer, error) {
+	starters := make([]nbaTopPerformer, 0, 5)
+	for _, team := range summary.Boxscore.Players {
+		if !strings.EqualFold(team.Team.Abbreviation, teamAbbreviation) {
+			continue
+		}
+		for _, table := range team.Statistics {
+			pointsIndex := nbaStatIndex(table.Labels, "PTS")
+			reboundsIndex := nbaStatIndex(table.Labels, "REB")
+			assistsIndex := nbaStatIndex(table.Labels, "AST")
+			if pointsIndex < 0 || reboundsIndex < 0 || assistsIndex < 0 {
+				continue
+			}
+			for _, player := range table.Athletes {
+				if !player.Starter || player.DidNotPlay || player.Athlete.DisplayName == "" || pointsIndex >= len(player.Stats) || reboundsIndex >= len(player.Stats) || assistsIndex >= len(player.Stats) {
+					continue
+				}
+				starters = append(starters, nbaTopPerformer{
+					Name:     player.Athlete.DisplayName,
+					Headshot: player.Athlete.Headshot.Href,
+					TeamLogo: team.Team.Logo,
+					Points:   parseNBAStat(player.Stats[pointsIndex]),
+					Rebounds: parseNBAStat(player.Stats[reboundsIndex]),
+					Assists:  parseNBAStat(player.Stats[assistsIndex]),
+				})
+			}
+		}
+	}
+	if len(starters) == 0 {
+		return nbaTopPerformer{}, fmt.Errorf("box score has no starters for %s", teamAbbreviation)
+	}
+	return starters[rng.Intn(len(starters))], nil
+}
+
+func selectNBATopPerformer(summary nbaSummary) (nbaTopPerformer, error) {
+	var best nbaTopPerformer
+	bestProduction := -1
+	for _, team := range summary.Boxscore.Players {
+		for _, table := range team.Statistics {
+			pointsIndex := nbaStatIndex(table.Labels, "PTS")
+			reboundsIndex := nbaStatIndex(table.Labels, "REB")
+			assistsIndex := nbaStatIndex(table.Labels, "AST")
+			if pointsIndex < 0 || reboundsIndex < 0 || assistsIndex < 0 {
+				continue
+			}
+			for _, player := range table.Athletes {
+				if player.DidNotPlay || player.Athlete.DisplayName == "" || pointsIndex >= len(player.Stats) || reboundsIndex >= len(player.Stats) || assistsIndex >= len(player.Stats) {
+					continue
+				}
+				candidate := nbaTopPerformer{
+					Name:     player.Athlete.DisplayName,
+					Headshot: player.Athlete.Headshot.Href,
+					TeamLogo: team.Team.Logo,
+					Points:   parseNBAStat(player.Stats[pointsIndex]),
+					Rebounds: parseNBAStat(player.Stats[reboundsIndex]),
+					Assists:  parseNBAStat(player.Stats[assistsIndex]),
+				}
+				production := candidate.Points + candidate.Rebounds + candidate.Assists
+				if production > bestProduction || (production == bestProduction && candidate.Points > best.Points) {
+					best, bestProduction = candidate, production
+				}
+			}
+		}
+	}
+	if bestProduction < 0 {
+		return nbaTopPerformer{}, fmt.Errorf("game summary has no player box score")
+	}
+	return best, nil
+}
+
+func nbaStatIndex(labels []string, wanted string) int {
+	for index, label := range labels {
+		if strings.EqualFold(strings.TrimSpace(label), wanted) {
+			return index
+		}
+	}
+	return -1
+}
+
+func parseNBAStat(value string) int {
+	parsed, _ := strconv.Atoi(strings.TrimSpace(value))
+	return parsed
 }
 
 func fetchNBAScoreboard(ctx context.Context, now time.Time) (*nbaScoreboard, error) {
@@ -333,7 +717,7 @@ func nbaNotificationForGame(game nbaEvent, config vars.NBAConfig, now time.Time)
 		until := start.Sub(now)
 		lead := time.Duration(config.PregameMinutes) * time.Minute
 		if until > 0 && until <= lead && !nbaPregameNotified[game.ID] {
-			phrase := fmt.Sprintf("NBA game reminder. The %s play the %s in about %d minutes.", away.Team.DisplayName, home.Team.DisplayName, maxInt(1, int(until.Round(time.Minute)/time.Minute)))
+			phrase := fmt.Sprintf("NBA game reminder. The %s play the %s in about %d minutes.", spokenNBATeamName(away), spokenNBATeamName(home), maxInt(1, int(until.Round(time.Minute)/time.Minute)))
 			return "pregame", phrase, true
 		}
 	case "in":
@@ -346,12 +730,12 @@ func nbaNotificationForGame(game nbaEvent, config vars.NBAConfig, now time.Time)
 			if detail == "" {
 				detail = game.Status.Type.Detail
 			}
-			phrase := fmt.Sprintf("NBA score update. %s, %s. %s, %s. %s.", away.Team.DisplayName, scoreOrZero(away.Score), home.Team.DisplayName, scoreOrZero(home.Score), spokenNBAGameDetail(detail))
+			phrase := fmt.Sprintf("NBA score update. %s, %s. %s, %s. %s.", spokenNBATeamName(away), scoreOrZero(away.Score), spokenNBATeamName(home), scoreOrZero(home.Score), spokenNBAGameDetail(detail))
 			return "live", phrase, true
 		}
 	case "post":
 		if config.NotifyFinal && !nbaFinalNotified[game.ID] {
-			phrase := fmt.Sprintf("Final NBA score. %s, %s. %s, %s.", away.Team.DisplayName, scoreOrZero(away.Score), home.Team.DisplayName, scoreOrZero(home.Score))
+			phrase := fmt.Sprintf("Final NBA score. %s, %s. %s, %s.", spokenNBATeamName(away), scoreOrZero(away.Score), spokenNBATeamName(home), scoreOrZero(home.Score))
 			return "final", phrase, true
 		}
 	}
@@ -410,6 +794,48 @@ func renderNBAScoreFace(ctx context.Context, game nbaEvent, location *time.Locat
 	drawCenteredText(canvas, scoreOrZero(home.Score), 112, 50, color.White)
 	drawCenteredText(canvas, nbaFaceStatus(game, location), 92, 88, color.RGBA{100, 220, 255, 255})
 	return convertImageToVectorFaceData(canvas), nil
+}
+
+func renderNBAPerformerFace(ctx context.Context, performer nbaTopPerformer) ([]byte, error) {
+	if strings.TrimSpace(performer.Name) == "" {
+		return nil, fmt.Errorf("top performer name is empty")
+	}
+	canvas := image.NewNRGBA(image.Rect(0, 0, 184, 96))
+	draw.Draw(canvas, canvas.Bounds(), image.NewUniform(color.Black), image.Point{}, draw.Src)
+
+	portrait, _ := loadNBALogo(ctx, performer.Headshot)
+	if portrait != nil {
+		xdraw.CatmullRom.Scale(canvas, image.Rect(0, 7, 74, 96), portrait, portrait.Bounds(), draw.Over, nil)
+	}
+	teamLogo, _ := loadNBALogo(ctx, performer.TeamLogo)
+	if teamLogo != nil {
+		xdraw.CatmullRom.Scale(canvas, image.Rect(78, 39, 112, 73), teamLogo, teamLogo.Bounds(), draw.Over, nil)
+	}
+
+	drawPlayerName(canvas, performer.Name)
+	statColor := color.RGBA{100, 220, 255, 255}
+	drawCenteredText(canvas, fmt.Sprintf("%d PTS", performer.Points), 148, 48, statColor)
+	drawCenteredText(canvas, fmt.Sprintf("%d REB", performer.Rebounds), 148, 66, color.White)
+	drawCenteredText(canvas, fmt.Sprintf("%d AST", performer.Assists), 148, 84, color.White)
+	return convertImageToVectorFaceData(canvas), nil
+}
+
+func drawPlayerName(dst draw.Image, name string) {
+	parts := strings.Fields(name)
+	if len(parts) <= 1 {
+		drawCenteredText(dst, truncateNBAFaceText(name, 15), 128, 23, color.White)
+		return
+	}
+	drawCenteredText(dst, truncateNBAFaceText(parts[0], 15), 128, 14, color.White)
+	drawCenteredText(dst, truncateNBAFaceText(strings.Join(parts[1:], " "), 15), 128, 29, color.White)
+}
+
+func truncateNBAFaceText(text string, limit int) string {
+	runes := []rune(text)
+	if len(runes) <= limit {
+		return text
+	}
+	return string(runes[:limit])
 }
 
 func loadNBALogo(ctx context.Context, url string) (image.Image, error) {

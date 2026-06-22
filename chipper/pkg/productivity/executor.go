@@ -37,6 +37,7 @@ type Task struct {
 	Phrases                 []string
 	Image                   string
 	FaceData                []byte
+	AdditionalFaceData      [][]byte
 	Source                  string
 	RetryCount              int
 	RequireConfirmation     bool
@@ -247,13 +248,7 @@ func processTask(task Task) {
 	}
 
 	if len(task.FaceData) > 0 {
-		if _, err := robot.Conn.DisplayFaceImageRGB(ctx, &vectorpb.DisplayFaceImageRGBRequest{
-			FaceData:         task.FaceData,
-			DurationMs:       uint32(reminderImageDisplayDuration / time.Millisecond),
-			InterruptRunning: true,
-		}); err != nil {
-			logger.Println("Productivity: Dynamic face image display failed: " + err.Error())
-		} else if !waitForReminderImage(ctx) {
+		if !displayReminderFaceData(ctx, robot, task.FaceData, "Dynamic face image") {
 			return
 		}
 	} else if task.Image != "" {
@@ -275,6 +270,11 @@ func processTask(task Task) {
 			}
 		} else {
 			logger.Println("Productivity: Face image is unavailable: " + err.Error())
+		}
+	}
+	for _, faceData := range task.AdditionalFaceData {
+		if len(faceData) > 0 && !displayReminderFaceData(ctx, robot, faceData, "Additional face image") {
+			return
 		}
 	}
 	if !taskIsCurrent(task) {
@@ -344,6 +344,18 @@ func processTask(task Task) {
 			snoozeTask(task)
 		}
 	}
+}
+
+func displayReminderFaceData(ctx context.Context, robot *vector.Vector, faceData []byte, description string) bool {
+	if _, err := robot.Conn.DisplayFaceImageRGB(ctx, &vectorpb.DisplayFaceImageRGBRequest{
+		FaceData:         faceData,
+		DurationMs:       uint32(reminderImageDisplayDuration / time.Millisecond),
+		InterruptRunning: true,
+	}); err != nil {
+		logger.Println("Productivity: " + description + " display failed: " + err.Error())
+		return true
+	}
+	return waitForReminderImage(ctx)
 }
 
 // Voice-intent handling can still be releasing its audio and face tracks when

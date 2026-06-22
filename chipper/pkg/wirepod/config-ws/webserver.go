@@ -81,6 +81,8 @@ func apiHandler(w http.ResponseWriter, r *http.Request) {
 		handleTestProductivityReminder(w, r)
 	case "test_nba_reminder":
 		handleTestNBAReminder(w, r)
+	case "test_nba_final_reminder":
+		handleTestNBAFinalReminder(w, r)
 	case "is_api_v3":
 		fmt.Fprintf(w, "it is!")
 	default:
@@ -404,6 +406,16 @@ func handleTestNBAReminder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	fmt.Fprint(w, "Random NBA score update queued.")
+}
+
+func handleTestNBAFinalReminder(w http.ResponseWriter, r *http.Request) {
+	targetRobot := strings.TrimSpace(r.FormValue("target_robot"))
+	if err := productivity.InjectTestNBAFinalUpdate(targetRobot); err != nil {
+		logger.Println("Unable to queue NBA final score test: " + err.Error())
+		http.Error(w, "Unable to queue NBA final score test: "+err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+	fmt.Fprint(w, "Random NBA final score and top performer queued.")
 }
 
 func handleSetKGAPI(w http.ResponseWriter, r *http.Request) {

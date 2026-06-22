@@ -6,7 +6,7 @@ var GetLog = false;
 let reminderCounter = 0; 
 
 // VERSION REMINDER: Increment this for every repository change (V1, V2, ...).
-const ROCKET_POD_VERSION = "V1";
+const ROCKET_POD_VERSION = "V5";
 
 const nbaTeams = [
   ["ATL", "Atlanta Hawks"], ["BOS", "Boston Celtics"], ["BKN", "Brooklyn Nets"],
@@ -353,6 +353,24 @@ function testNBAReminder() {
     })
     .then(text => displayMessage("addProductivityProviderAPIStatus", text))
     .catch(error => displayMessage("addProductivityProviderAPIStatus", "NBA test failed: " + error.message));
+}
+
+function testNBAFinalReminder() {
+  const formData = new FormData();
+  formData.append("target_robot", getE("targetBot").value);
+  displayMessage("addProductivityProviderAPIStatus", "Generating random NBA final score...");
+
+  fetch("/api/test_nba_final_reminder", {
+    method: "POST",
+    body: formData
+  })
+    .then(async response => {
+      const text = await response.text();
+      if (!response.ok) throw new Error(text);
+      return text;
+    })
+    .then(text => displayMessage("addProductivityProviderAPIStatus", text))
+    .catch(error => displayMessage("addProductivityProviderAPIStatus", "NBA final test failed: " + error.message));
 }
 
 function toggleAccordion(id) {

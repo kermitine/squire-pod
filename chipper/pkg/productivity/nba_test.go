@@ -72,6 +72,74 @@ func TestSpokenNBAGameDetail(t *testing.T) {
 	}
 }
 
+func TestSpokenNBATeamNameExpandsLAClippers(t *testing.T) {
+	competitor := nbaCompetitor{}
+	competitor.Team.Abbreviation = "LAC"
+	competitor.Team.DisplayName = "LA Clippers"
+	if got := spokenNBATeamName(competitor); got != "Los Angeles Clippers" {
+		t.Fatalf("spokenNBATeamName() = %q, want %q", got, "Los Angeles Clippers")
+	}
+}
+
+func TestSelectNBATopPerformer(t *testing.T) {
+	summary := nbaSummary{}
+	team := nbaBoxscoreTeam{}
+	team.Team.Logo = "team-logo"
+	table := nbaPlayerStatistics{Labels: []string{"MIN", "PTS", "REB", "AST"}}
+	first := nbaBoxscoreAthlete{Stats: []string{"35", "28", "6", "5"}}
+	first.Athlete.DisplayName = "First Player"
+	second := nbaBoxscoreAthlete{Stats: []string{"38", "24", "12", "9"}}
+	second.Athlete.DisplayName = "Second Player"
+	second.Athlete.Headshot.Href = "portrait"
+	table.Athletes = []nbaBoxscoreAthlete{first, second}
+	team.Statistics = []nbaPlayerStatistics{table}
+	summary.Boxscore.Players = []nbaBoxscoreTeam{team}
+
+	got, err := selectNBATopPerformer(summary)
+	if err != nil {
+		t.Fatalf("selectNBATopPerformer() error = %v", err)
+	}
+	if got.Name != "Second Player" || got.Points != 24 || got.Rebounds != 12 || got.Assists != 9 || got.Headshot != "portrait" || got.TeamLogo != "team-logo" {
+		t.Fatalf("selectNBATopPerformer() = %#v", got)
+	}
+}
+
+func TestSelectRandomNBAStarter(t *testing.T) {
+	summary := nbaSummary{}
+	team := nbaBoxscoreTeam{}
+	team.Team.Abbreviation = "BOS"
+	team.Team.Logo = "boston-logo"
+	table := nbaPlayerStatistics{Labels: []string{"PTS", "REB", "AST"}}
+	bench := nbaBoxscoreAthlete{Stats: []string{"30", "8", "7"}}
+	bench.Athlete.DisplayName = "Bench Player"
+	starter := nbaBoxscoreAthlete{Starter: true, Stats: []string{"18", "10", "6"}}
+	starter.Athlete.DisplayName = "Starting Player"
+	starter.Athlete.Headshot.Href = "starter-portrait"
+	table.Athletes = []nbaBoxscoreAthlete{bench, starter}
+	team.Statistics = []nbaPlayerStatistics{table}
+	summary.Boxscore.Players = []nbaBoxscoreTeam{team}
+
+	got, err := selectRandomNBAStarter(summary, "BOS", rand.New(rand.NewSource(42)))
+	if err != nil {
+		t.Fatalf("selectRandomNBAStarter() error = %v", err)
+	}
+	if got.Name != "Starting Player" || got.Points != 18 || got.Rebounds != 10 || got.Assists != 6 || got.TeamLogo != "boston-logo" {
+		t.Fatalf("selectRandomNBAStarter() = %#v", got)
+	}
+}
+
+func TestRenderNBAPerformerFace(t *testing.T) {
+	faceData, err := renderNBAPerformerFace(context.Background(), nbaTopPerformer{
+		Name: "Pascal Siakam", Points: 26, Rebounds: 10, Assists: 6,
+	})
+	if err != nil {
+		t.Fatalf("renderNBAPerformerFace() error = %v", err)
+	}
+	if len(faceData) != 184*96*2 {
+		t.Fatalf("face data length = %d, want %d", len(faceData), 184*96*2)
+	}
+}
+
 func TestNBAFinalNotificationAndFaceRender(t *testing.T) {
 	resetNBANotificationState()
 	now := time.Date(2026, time.January, 2, 1, 0, 0, 0, time.UTC)
@@ -105,6 +173,37 @@ func TestRandomNBATestGameUsesDistinctTeams(t *testing.T) {
 	}
 	if game.Status.Type.State != "in" {
 		t.Fatalf("random test game state = %q, want in", game.Status.Type.State)
+	}
+}
+
+func TestRandomNBAFinalTestGame(t *testing.T) {
+	rng := rand.New(rand.NewSource(42))
+	team, performer := fallbackNBAFinalTestStarter(rng)
+	game, performer := randomNBAFinalTestGame(rng, team, performer)
+	away, home, ok := nbaGameTeams(game)
+	if !ok {
+		t.Fatal("random final test game has no home/away teams")
+	}
+	if game.Status.Type.State != "post" || game.Status.Type.ShortDetail != "Final" {
+		t.Fatalf("random final test status = (%q, %q), want post/final", game.Status.Type.State, game.Status.Type.ShortDetail)
+	}
+	if away.Team.Abbreviation == home.Team.Abbreviation || away.Score == home.Score {
+		t.Fatalf("random final test matchup is invalid: %#v", game)
+	}
+	if performer.Name == "" || performer.Headshot == "" || performer.TeamLogo == "" {
+		t.Fatalf("random final test performer is incomplete: %#v", performer)
+	}
+	if performer.TeamLogo != away.Team.Logo && performer.TeamLogo != home.Team.Logo {
+		t.Fatalf("performer logo %q does not belong to either test team", performer.TeamLogo)
+	}
+}
+
+func TestNBASeasonYear(t *testing.T) {
+	if got := nbaSeasonYear(time.Date(2026, time.June, 1, 0, 0, 0, 0, time.UTC)); got != 2026 {
+		t.Fatalf("nbaSeasonYear(June 2026) = %d, want 2026", got)
+	}
+	if got := nbaSeasonYear(time.Date(2026, time.October, 1, 0, 0, 0, 0, time.UTC)); got != 2027 {
+		t.Fatalf("nbaSeasonYear(October 2026) = %d, want 2027", got)
 	}
 }
 
