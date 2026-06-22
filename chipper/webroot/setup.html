@@ -293,6 +293,55 @@
 		    </div>
 		  </div>
 		</div>
+
+		<hr class="small-hr" style="width: 100px; border-color: #333;">
+
+		<div id="f1ReminderSection" style="text-align: left; margin-top: 20px;">
+		  <div class="manual-header">
+		    <div>
+		      <input type="checkbox" id="f1Enable" onchange="toggleF1Settings()">
+		      <label class="checkbox-label" for="f1Enable">Enable Formula 1 Race Updates</label>
+		    </div>
+		  </div>
+		  <div id="f1Settings" class="reminder-block" style="display:none; padding:20px; margin-top:12px;">
+		    <div class="reminder-grid">
+		      <label for="f1PregameMinutes">Session Reminder</label>
+		      <div style="display:flex; align-items:center; gap:8px;">
+		        <input id="f1PregameMinutes" type="number" min="1" max="1440" value="60" class="tinput" style="width:90px;">
+		        <span>minutes before the race or qualifying</span>
+		      </div>
+
+		      <label for="f1LiveUpdateMinutes">Live Leaderboard</label>
+		      <div style="display:flex; align-items:center; gap:8px;">
+		        <input id="f1LiveUpdateMinutes" type="number" min="1" max="60" value="10" class="tinput" style="width:90px;">
+		        <span>minutes between top-ten updates</span>
+		      </div>
+
+		      <label for="f1NotifyFinal">Race Result</label>
+		      <div>
+		        <input type="checkbox" id="f1NotifyFinal" checked>
+		        <label class="checkbox-label" for="f1NotifyFinal">Announce the final top ten</label>
+		      </div>
+
+		      <label for="f1NotifyQualifying">Qualifying</label>
+		      <div>
+		        <input type="checkbox" id="f1NotifyQualifying" checked>
+		        <label class="checkbox-label" for="f1NotifyQualifying">Remind me and announce qualifying updates</label>
+		      </div>
+
+		      <label for="f1AllowedStart">Allowed Hours</label>
+		      <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+		        <input id="f1AllowedStart" type="time" value="08:00" class="tinput" style="width:120px;">
+		        <span>to</span>
+		        <input id="f1AllowedEnd" type="time" value="22:00" class="tinput" style="width:120px;">
+		        <small class="desc" style="width:100%;">Vector stays quiet outside this window in your configured timezone.</small>
+		      </div>
+		    </div>
+		    <div style="margin-top:20px; padding-top:15px; border-top:1px solid #444; display:flex; justify-content:flex-end; gap:10px; flex-wrap:wrap;">
+		      <button type="button" class="btn-generic btn-test" onclick="testF1Reminder()">Test F1 Leaderboard</button>
+		    </div>
+		  </div>
+		</div>
         <hr />
       </div>
 

@@ -6,7 +6,7 @@ var GetLog = false;
 let reminderCounter = 0; 
 
 // VERSION REMINDER: Increment this for every repository change (V1, V2, ...).
-const ROCKET_POD_VERSION = "V8";
+const ROCKET_POD_VERSION = "V11";
 
 const nbaTeams = [
   ["ATL", "Atlanta Hawks"], ["BOS", "Boston Celtics"], ["BKN", "Brooklyn Nets"],
@@ -373,6 +373,36 @@ function testNBAFinalReminder() {
     .catch(error => displayMessage("addProductivityProviderAPIStatus", "NBA final test failed: " + error.message));
 }
 
+function toggleF1Settings() {
+  getE("f1Settings").style.display = getE("f1Enable").checked ? "block" : "none";
+}
+
+function collectF1ConfigData() {
+  return {
+    enable: getE("f1Enable").checked,
+    pregame_minutes: parseInt(getE("f1PregameMinutes").value) || 60,
+    live_update_minutes: parseInt(getE("f1LiveUpdateMinutes").value) || 10,
+    notify_final: getE("f1NotifyFinal").checked,
+    notify_qualifying: getE("f1NotifyQualifying").checked,
+    allowed_start: getE("f1AllowedStart").value || "08:00",
+    allowed_end: getE("f1AllowedEnd").value || "22:00"
+  };
+}
+
+function testF1Reminder() {
+  const formData = new FormData();
+  formData.append("target_robot", getE("targetBot").value);
+  displayMessage("addProductivityProviderAPIStatus", "Generating F1 top-ten leaderboard...");
+  fetch("/api/test_f1_reminder", { method: "POST", body: formData })
+    .then(async response => {
+      const text = await response.text();
+      if (!response.ok) throw new Error(text);
+      return text;
+    })
+    .then(text => displayMessage("addProductivityProviderAPIStatus", text))
+    .catch(error => displayMessage("addProductivityProviderAPIStatus", "F1 test failed: " + error.message));
+}
+
 function toggleAccordion(id) {
     const content = document.getElementById(id + "_content");
     const header = document.getElementById(id + "_header");
@@ -707,6 +737,7 @@ function sendProductivityAPIKey() {
   const manualConfigArray = collectManualConfigData(formData);
   formData.append("manual_config", JSON.stringify(manualConfigArray));
   formData.append("nba_config", JSON.stringify(collectNBAConfigData()));
+  formData.append("f1_config", JSON.stringify(collectF1ConfigData()));
 
   displayMessage("addProductivityProviderAPIStatus", "Saving...");
 
@@ -744,6 +775,16 @@ function updateProductivityAPI() {
               getE("nbaNotifyFinal").checked = nba.notify_final !== false;
               populateNBATeamSelect(nba.favorite_teams || []);
               toggleNBASettings();
+
+              const f1 = data.f1 || {};
+              getE("f1Enable").checked = f1.enable === true;
+              getE("f1PregameMinutes").value = f1.pregame_minutes || 60;
+              getE("f1LiveUpdateMinutes").value = f1.live_update_minutes || 10;
+              getE("f1NotifyFinal").checked = f1.notify_final !== false;
+              getE("f1NotifyQualifying").checked = f1.notify_qualifying !== false;
+              getE("f1AllowedStart").value = f1.allowed_start || "08:00";
+              getE("f1AllowedEnd").value = f1.allowed_end || "22:00";
+              toggleF1Settings();
 
               if (data.manual_config && data.manual_config.length > 2) { 
                   getE("enableManualReminders").checked = true;

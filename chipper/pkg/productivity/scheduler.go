@@ -86,9 +86,13 @@ func schedulerLoop() {
 			lastProcessedTasks = make(map[string]bool)
 			lastManualRun = make(map[string]string)
 			resetNBANotificationState()
+			resetF1NotificationState()
 			logger.Println("Productivity: Applied updated scheduler configuration")
 			if vars.APIConfig.Productivity.NBA.Enable {
 				checkNBAGames()
+			}
+			if vars.APIConfig.Productivity.F1.Enable {
+				checkF1Races()
 			}
 		case <-externalApiTicker.C:
 			provider := vars.APIConfig.Productivity.Provider
@@ -97,6 +101,7 @@ func schedulerLoop() {
 			}
 		case <-nbaTicker.C:
 			checkNBAGames()
+			checkF1Races()
 		case <-ticker.C:
 			generation := currentConfigurationGeneration()
 			configStr := vars.APIConfig.Productivity.ManualConfig

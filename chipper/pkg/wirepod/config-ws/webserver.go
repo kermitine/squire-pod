@@ -10,6 +10,7 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 
 	"github.com/kercre123/wire-pod/chipper/pkg/logger"
@@ -83,6 +84,8 @@ func apiHandler(w http.ResponseWriter, r *http.Request) {
 		handleTestNBAReminder(w, r)
 	case "test_nba_final_reminder":
 		handleTestNBAFinalReminder(w, r)
+	case "test_f1_reminder":
+		handleTestF1Reminder(w, r)
 	case "is_api_v3":
 		fmt.Fprintf(w, "it is!")
 	default:
@@ -236,6 +239,7 @@ func handleSetProductivityAPI(w http.ResponseWriter, r *http.Request) {
 	targetRobot := r.FormValue("target_robot")
 	timezone := strings.TrimSpace(r.FormValue("timezone"))
 	nbaConfigStr := strings.TrimSpace(r.FormValue("nba_config"))
+	f1ConfigStr := strings.TrimSpace(r.FormValue("f1_config"))
 	manualConfig := strings.TrimSpace(r.FormValue("manual_config"))
 	if manualConfig == "" {
 		manualConfig = "[]"
@@ -275,6 +279,31 @@ func handleSetProductivityAPI(w http.ResponseWriter, r *http.Request) {
 	if nbaConfig.LiveUpdateMinutes > 60 {
 		nbaConfig.LiveUpdateMinutes = 60
 	}
+	var f1Config vars.F1Config
+	if f1ConfigStr != "" {
+		if err := json.Unmarshal([]byte(f1ConfigStr), &f1Config); err != nil {
+			http.Error(w, "Invalid F1 reminder configuration", http.StatusBadRequest)
+			return
+		}
+	}
+	if f1Config.PregameMinutes < 1 {
+		f1Config.PregameMinutes = 60
+	}
+	if f1Config.PregameMinutes > 1440 {
+		f1Config.PregameMinutes = 1440
+	}
+	if f1Config.LiveUpdateMinutes < 1 {
+		f1Config.LiveUpdateMinutes = 10
+	}
+	if f1Config.LiveUpdateMinutes > 60 {
+		f1Config.LiveUpdateMinutes = 60
+	}
+	if !validClockTime(f1Config.AllowedStart) {
+		f1Config.AllowedStart = "08:00"
+	}
+	if !validClockTime(f1Config.AllowedEnd) {
+		f1Config.AllowedEnd = "22:00"
+	}
 
 	previousConfig := vars.APIConfig.Productivity
 	vars.APIConfig.Productivity.Enable = provider == "todoist"
@@ -287,6 +316,7 @@ func handleSetProductivityAPI(w http.ResponseWriter, r *http.Request) {
 	vars.APIConfig.Productivity.Timezone = timezone
 	vars.APIConfig.Productivity.ManualConfig = manualConfig
 	vars.APIConfig.Productivity.NBA = nbaConfig
+	vars.APIConfig.Productivity.F1 = f1Config
 
 	files := r.MultipartForm.File["files"]
 	if len(files) > 0 {
@@ -416,6 +446,25 @@ func handleTestNBAFinalReminder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	fmt.Fprint(w, "Random NBA final score and top performer queued.")
+}
+
+func handleTestF1Reminder(w http.ResponseWriter, r *http.Request) {
+	targetRobot := strings.TrimSpace(r.FormValue("target_robot"))
+	if err := productivity.InjectTestF1Update(targetRobot); err != nil {
+		logger.Println("Unable to queue F1 test update: " + err.Error())
+		http.Error(w, "Unable to queue F1 test update: "+err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+	fmt.Fprint(w, "F1 top-ten leaderboard queued.")
+}
+
+func validClockTime(value string) bool {
+	if len(value) != 5 || value[2] != ':' {
+		return false
+	}
+	hour, hourErr := strconv.Atoi(value[:2])
+	minute, minuteErr := strconv.Atoi(value[3:])
+	return hourErr == nil && minuteErr == nil && hour >= 0 && hour < 24 && minute >= 0 && minute < 60
 }
 
 func handleSetKGAPI(w http.ResponseWriter, r *http.Request) {

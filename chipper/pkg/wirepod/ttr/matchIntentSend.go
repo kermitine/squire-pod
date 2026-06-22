@@ -9,6 +9,7 @@ import (
 
 	pb "github.com/digital-dream-labs/api/go/chipperpb"
 	"github.com/kercre123/wire-pod/chipper/pkg/logger"
+	"github.com/kercre123/wire-pod/chipper/pkg/productivity"
 	"github.com/kercre123/wire-pod/chipper/pkg/scripting"
 	"github.com/kercre123/wire-pod/chipper/pkg/vars"
 	"github.com/kercre123/wire-pod/chipper/pkg/vtt"
@@ -258,6 +259,18 @@ func ProcessTextAll(req interface{}, voiceText string, intents []vars.JsonIntent
 	var intentNum int = 0
 	var successMatched bool = false
 	voiceText = strings.ToLower(voiceText)
+	if standingsKind, ok := productivity.MatchStandingsVoiceCommand(voiceText); ok {
+		switch req.(type) {
+		case *vtt.IntentRequest, *vtt.IntentGraphRequest:
+			if _, err := IntentPass(req, "intent_system_noaudio", voiceText, map[string]string{}, false); err != nil {
+				logger.Println("Unable to finish standings voice intent: " + err.Error())
+			}
+		}
+		if err := productivity.QueueVoiceStandings(botSerial, standingsKind); err != nil {
+			logger.Println("Unable to queue standings voice command: " + err.Error())
+		}
+		return true
+	}
 	pluginMatched := pluginFunctionHandler(req, voiceText, botSerial)
 	customIntentMatched := customIntentHandler(req, voiceText, botSerial)
 	if !customIntentMatched && !pluginMatched {
@@ -329,7 +342,7 @@ func KnowledgeGraphResponseIG(req *vtt.IntentGraphRequest, spokenText string, qu
 		QueryText:    queryText,
 		CommandType:  pb.RobotMode_VOICE_COMMAND.String(),
 	}
-	
+
 	if err := req.Stream.Send(&intentGraphSend); err != nil {
 		return err
 	}

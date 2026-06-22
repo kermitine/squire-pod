@@ -1,5 +1,30 @@
 [
 	{
+		"name": "intent_sports_nba_east_standings",
+		"keyphrases": ["NBA eastern conference standings", "eastern conference standings", "eastern standings", "east standings"],
+		"requiresexact": false
+	},
+	{
+		"name": "intent_sports_nba_west_standings",
+		"keyphrases": ["NBA western conference standings", "western conference standings", "western standings", "west standings"],
+		"requiresexact": false
+	},
+	{
+		"name": "intent_sports_nba_standings",
+		"keyphrases": ["NBA standings", "NBA leaderboard", "basketball standings"],
+		"requiresexact": false
+	},
+	{
+		"name": "intent_sports_f1_driver_standings",
+		"keyphrases": ["F1 driver standings", "Formula 1 driver standings", "Formula One driver standings", "F1 standings"],
+		"requiresexact": false
+	},
+	{
+		"name": "intent_sports_f1_constructor_standings",
+		"keyphrases": ["F1 constructor standings", "Formula 1 constructor standings", "Formula One constructor standings", "constructor standings"],
+		"requiresexact": false
+	},
+	{
 		"name" : "intent_names_username_extend", 
 		"keyphrases": ["name is", "native is", "names", "name's", "my name is" ],
 		"requiresexact": false

@@ -154,6 +154,7 @@ type ProductivityConfig struct {
 	Timezone     string    `json:"timezone"`
 	ManualConfig string    `json:"manual_config"`
 	NBA          NBAConfig `json:"nba"`
+	F1           F1Config  `json:"f1"`
 }
 
 type NBAConfig struct {
@@ -162,6 +163,16 @@ type NBAConfig struct {
 	PregameMinutes    int      `json:"pregame_minutes"`
 	LiveUpdateMinutes int      `json:"live_update_minutes"`
 	NotifyFinal       bool     `json:"notify_final"`
+}
+
+type F1Config struct {
+	Enable            bool   `json:"enable"`
+	PregameMinutes    int    `json:"pregame_minutes"`
+	LiveUpdateMinutes int    `json:"live_update_minutes"`
+	NotifyFinal       bool   `json:"notify_final"`
+	NotifyQualifying  bool   `json:"notify_qualifying"`
+	AllowedStart      string `json:"allowed_start"`
+	AllowedEnd        string `json:"allowed_end"`
 }
 
 func join(p1, p2 string) string {

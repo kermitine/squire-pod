@@ -1,0 +1,157 @@
+package productivity
+
+import (
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/kercre123/wire-pod/chipper/pkg/vars"
+)
+
+func TestF1RaceCompetitionSelectsRaceSession(t *testing.T) {
+	event := f1Event{}
+	practice := f1Competition{ID: "practice"}
+	practice.Type.Abbreviation = "FP1"
+	race := f1Competition{ID: "race"}
+	race.Type.Abbreviation = "Race"
+	event.Competitions = []f1Competition{practice, race}
+	got, ok := f1RaceCompetition(event)
+	if !ok || got.ID != "race" {
+		t.Fatalf("f1RaceCompetition() = %#v, %v", got, ok)
+	}
+}
+
+func TestF1NotificationSessionsIncludeQualifyingWhenEnabled(t *testing.T) {
+	event := f1Event{}
+	practice := f1Competition{ID: "practice"}
+	practice.Type.Abbreviation = "FP1"
+	qualifying := f1Competition{ID: "qualifying"}
+	qualifying.Type.Abbreviation = "Qual"
+	race := f1Competition{ID: "race"}
+	race.Type.Abbreviation = "Race"
+	event.Competitions = []f1Competition{practice, qualifying, race}
+
+	if got := f1NotificationSessions(event, false); len(got) != 1 || got[0].ID != "race" {
+		t.Fatalf("race-only sessions = %#v", got)
+	}
+	if got := f1NotificationSessions(event, true); len(got) != 2 || got[0].ID != "qualifying" || got[1].ID != "race" {
+		t.Fatalf("race and qualifying sessions = %#v", got)
+	}
+}
+
+func TestF1TopTenSortsAndLimitsClassification(t *testing.T) {
+	race := f1Competition{}
+	for position := 12; position >= 1; position-- {
+		driver := f1Competitor{Order: position}
+		driver.Athlete.DisplayName = "Driver " + f1Ordinal(position)
+		race.Competitors = append(race.Competitors, driver)
+	}
+	top := f1TopTen(race)
+	if len(top) != 10 || top[0].Order != 1 || top[9].Order != 10 {
+		t.Fatalf("f1TopTen() returned orders %v", f1Orders(top))
+	}
+}
+
+func TestF1NotificationLifecycle(t *testing.T) {
+	resetF1NotificationState()
+	now := time.Date(2026, time.June, 28, 12, 0, 0, 0, time.UTC)
+	config := vars.F1Config{PregameMinutes: 60, LiveUpdateMinutes: 10, NotifyFinal: true}
+	race := f1Competition{ID: "austria", Date: now.Add(45 * time.Minute).Format(time.RFC3339)}
+	race.Status.Type.State = "pre"
+	if kind, ok := f1NotificationForRace(race, config, now); !ok || kind != "pregame" {
+		t.Fatalf("pregame notification = %q, %v", kind, ok)
+	}
+	markF1Notified(race.ID, "pregame", now)
+	if _, ok := f1NotificationForRace(race, config, now); ok {
+		t.Fatal("duplicate pregame notification was allowed")
+	}
+
+	race.Status.Type.State = "in"
+	race.Competitors = []f1Competitor{{Order: 1}}
+	if kind, ok := f1NotificationForRace(race, config, now); !ok || kind != "live" {
+		t.Fatalf("live notification = %q, %v", kind, ok)
+	}
+	markF1Notified(race.ID, "live", now)
+	if _, ok := f1NotificationForRace(race, config, now.Add(9*time.Minute)); ok {
+		t.Fatal("live notification ignored its interval")
+	}
+	if _, ok := f1NotificationForRace(race, config, now.Add(10*time.Minute)); !ok {
+		t.Fatal("live notification did not resume at its interval")
+	}
+
+	race.Status.Type.State = "post"
+	if kind, ok := f1NotificationForRace(race, config, now); !ok || kind != "final" {
+		t.Fatalf("final notification = %q, %v", kind, ok)
+	}
+}
+
+func TestF1LeaderboardPagesShowAndSpeakTopTen(t *testing.T) {
+	event, race := syntheticF1Race()
+	pages, err := f1LeaderboardTaskPages(event, race, "final")
+	if err != nil {
+		t.Fatalf("f1LeaderboardTaskPages() error = %v", err)
+	}
+	if len(pages) != 2 || len(pages[0].FaceData) == 0 || len(pages[1].FaceData) == 0 {
+		t.Fatalf("leaderboard pages = %#v", pages)
+	}
+	speech := pages[0].Speech + " " + pages[1].Speech
+	for _, lastName := range []string{"Norris", "Verstappen", "Leclerc", "Russell", "Piastri", "Hamilton", "Sainz", "Alonso", "Albon", "Bearman"} {
+		if !strings.Contains(speech, lastName) {
+			t.Errorf("leaderboard speech does not include %s: %q", lastName, speech)
+		}
+	}
+}
+
+func TestF1DriverTeamBadge(t *testing.T) {
+	driver := f1Competitor{ID: "5579"}
+	driver.Athlete.DisplayName = "Lando Norris"
+	if got := f1TeamForDriver(driver); got.Code != "MCL" || got.Name != "McLaren" {
+		t.Fatalf("f1TeamForDriver() = %#v", got)
+	}
+}
+
+func TestF1QualifyingLeaderboardSpeech(t *testing.T) {
+	event, session := syntheticF1Race()
+	session.Type.Abbreviation = "Qual"
+	pages, err := f1LeaderboardTaskPages(event, session, "final")
+	if err != nil {
+		t.Fatalf("f1LeaderboardTaskPages() error = %v", err)
+	}
+	if !strings.Contains(pages[0].Speech, "Final F1 qualifying result") {
+		t.Fatalf("qualifying speech = %q", pages[0].Speech)
+	}
+}
+
+func TestF1AllowedHours(t *testing.T) {
+	tests := []struct {
+		name       string
+		hour       int
+		minute     int
+		start, end string
+		want       bool
+	}{
+		{name: "daytime", hour: 12, start: "08:00", end: "22:00", want: true},
+		{name: "three AM quiet", hour: 3, start: "08:00", end: "22:00", want: false},
+		{name: "end exclusive", hour: 22, start: "08:00", end: "22:00", want: false},
+		{name: "overnight evening", hour: 23, start: "20:00", end: "08:00", want: true},
+		{name: "overnight morning", hour: 7, minute: 59, start: "20:00", end: "08:00", want: true},
+		{name: "same means unrestricted", hour: 3, start: "00:00", end: "00:00", want: true},
+		{name: "invalid uses defaults", hour: 3, start: "bad", end: "bad", want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			now := time.Date(2026, time.June, 28, tt.hour, tt.minute, 0, 0, time.FixedZone("configured", -7*60*60))
+			if got := f1WithinAllowedHours(now, tt.start, tt.end); got != tt.want {
+				t.Fatalf("f1WithinAllowedHours(%s, %q, %q) = %v, want %v", now.Format("15:04"), tt.start, tt.end, got, tt.want)
+			}
+		})
+	}
+}
+
+func f1Orders(drivers []f1Competitor) []int {
+	orders := make([]int, len(drivers))
+	for index, driver := range drivers {
+		orders[index] = driver.Order
+	}
+	return orders
+}
