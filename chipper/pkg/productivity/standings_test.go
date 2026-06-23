@@ -68,10 +68,28 @@ func TestNBAStandingsPagesIncludeFullConference(t *testing.T) {
 	if len(pages[0].FaceData) == 0 {
 		t.Fatal("NBA standings face data is empty")
 	}
+	if strings.Contains(pages[1].Speech, "Continuing") || !strings.HasPrefix(pages[1].Speech, "sixth,") {
+		t.Fatalf("second standings page has an unnecessary introduction: %s", pages[1].Speech)
+	}
 
 	allPages, err := nbaStandingsPages(context.Background(), response, standingsNBAAll)
 	if err != nil || len(allPages) != 6 {
 		t.Fatalf("all NBA pages = %d, %v; want 6", len(allPages), err)
+	}
+}
+
+func TestStandingsIntentNamesDescribeMatchedCommand(t *testing.T) {
+	tests := map[string]string{
+		standingsNBAEast:        "intent_sports_nba_east_standings",
+		standingsNBAWest:        "intent_sports_nba_west_standings",
+		standingsNBAAll:         "intent_sports_nba_standings",
+		standingsF1Drivers:      "intent_sports_f1_driver_standings",
+		standingsF1Constructors: "intent_sports_f1_constructor_standings",
+	}
+	for kind, want := range tests {
+		if got := StandingsIntentName(kind); got != want {
+			t.Errorf("StandingsIntentName(%q) = %q, want %q", kind, got, want)
+		}
 	}
 }
 

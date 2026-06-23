@@ -17,15 +17,16 @@ import (
 )
 
 const (
-	standingsNBAEast        = "nba_east"
-	standingsNBAWest        = "nba_west"
-	standingsNBAAll         = "nba_all"
-	standingsF1Drivers      = "f1_drivers"
-	standingsF1Constructors = "f1_constructors"
-	nbaStandingsEndpoint    = "https://site.api.espn.com/apis/v2/sports/basketball/nba/standings?region=us&lang=en&contentorigin=espn&type=0&level=2"
-	f1StandingsEndpoint     = "https://site.web.api.espn.com/apis/v2/sports/racing/f1/standings?region=us&lang=en"
-	standingsEntriesPerPage = 5
-	standingsRequestTimeout = 45 * time.Second
+	standingsNBAEast                  = "nba_east"
+	standingsNBAWest                  = "nba_west"
+	standingsNBAAll                   = "nba_all"
+	standingsF1Drivers                = "f1_drivers"
+	standingsF1Constructors           = "f1_constructors"
+	nbaStandingsEndpoint              = "https://site.api.espn.com/apis/v2/sports/basketball/nba/standings?region=us&lang=en&contentorigin=espn&type=0&level=2"
+	f1StandingsEndpoint               = "https://site.web.api.espn.com/apis/v2/sports/racing/f1/standings?region=us&lang=en"
+	standingsEntriesPerPage           = 5
+	standingsRequestTimeout           = 45 * time.Second
+	standingsAcknowledgementAnimation = "anim_knowledgegraph_success_01"
 )
 
 type espnStandingsResponse struct {
@@ -157,6 +158,18 @@ func QueueVoiceStandings(robotESN, kind string) error {
 		return fmt.Errorf("unknown standings kind %q", kind)
 	}
 	generation := currentConfigurationGeneration()
+	acknowledgement := Task{
+		ID:                       fmt.Sprintf("standings_ack_%d", time.Now().UnixNano()),
+		RobotESN:                 robotESN,
+		Source:                   "standings",
+		AcknowledgementAnimation: standingsAcknowledgementAnimation,
+		AcknowledgementOnly:      true,
+		configurationGeneration:  generation,
+	}
+	select {
+	case taskQueue <- acknowledgement:
+	default:
+	}
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), standingsRequestTimeout)
 		defer cancel()
@@ -177,6 +190,23 @@ func QueueVoiceStandings(robotESN, kind string) error {
 		}
 	}()
 	return nil
+}
+
+func StandingsIntentName(kind string) string {
+	switch kind {
+	case standingsNBAEast:
+		return "intent_sports_nba_east_standings"
+	case standingsNBAWest:
+		return "intent_sports_nba_west_standings"
+	case standingsNBAAll:
+		return "intent_sports_nba_standings"
+	case standingsF1Drivers:
+		return "intent_sports_f1_driver_standings"
+	case standingsF1Constructors:
+		return "intent_sports_f1_constructor_standings"
+	default:
+		return "intent_sports_standings"
+	}
 }
 
 func fetchVoiceStandingsPages(ctx context.Context, kind string) ([]TaskPage, error) {
@@ -350,11 +380,11 @@ func standingsSpeech(title string, rows []standingsRow, firstPage bool) string {
 	for _, row := range rows {
 		parts = append(parts, fmt.Sprintf("%s, %s, %s", f1OrdinalLong(row.Position), row.Name, row.Speech))
 	}
-	prefix := "Continuing " + title
-	if firstPage {
-		prefix = title
+	entries := strings.Join(parts, ". ") + "."
+	if !firstPage {
+		return entries
 	}
-	return prefix + ". " + strings.Join(parts, ". ") + "."
+	return title + ". " + entries
 }
 
 func standingsErrorPages(kind string, err error) []TaskPage {

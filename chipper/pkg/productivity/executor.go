@@ -33,19 +33,21 @@ import (
 )
 
 type Task struct {
-	ID                      string
-	RobotESN                string
-	Phrases                 []string
-	Image                   string
-	FaceData                []byte
-	AdditionalFaceData      [][]byte
-	Pages                   []TaskPage
-	Source                  string
-	RetryCount              int
-	RequireConfirmation     bool
-	SnoozeMinutes           int
-	ExpiresAt               time.Time
-	configurationGeneration uint64
+	ID                       string
+	RobotESN                 string
+	Phrases                  []string
+	Image                    string
+	FaceData                 []byte
+	AdditionalFaceData       [][]byte
+	Pages                    []TaskPage
+	Source                   string
+	RetryCount               int
+	RequireConfirmation      bool
+	SnoozeMinutes            int
+	ExpiresAt                time.Time
+	AcknowledgementAnimation string
+	AcknowledgementOnly      bool
+	configurationGeneration  uint64
 }
 
 type TaskPage struct {
@@ -279,6 +281,9 @@ func processTask(task Task) {
 
 	robot, err := vars.GetRobot(task.RobotESN)
 	if err != nil {
+		if task.AcknowledgementOnly {
+			return
+		}
 		deferTask(task, "robot is unavailable", reminderOfflineRetryDelay)
 		return
 	}
@@ -291,6 +296,9 @@ func processTask(task Task) {
 	battResp, err := robot.Conn.BatteryState(availabilityCtx, &vectorpb.BatteryStateRequest{})
 	availabilityCancel()
 	if err != nil || battResp == nil {
+		if task.AcknowledgementOnly {
+			return
+		}
 		deferTask(task, "robot is offline", reminderOfflineRetryDelay)
 		return
 	}
@@ -298,11 +306,11 @@ func processTask(task Task) {
 		return
 	}
 	batteryLevel := battResp.GetBatteryLevel()
-	if batteryLevel == vectorpb.BatteryLevel_BATTERY_LEVEL_UNKNOWN {
+	if !task.AcknowledgementOnly && batteryLevel == vectorpb.BatteryLevel_BATTERY_LEVEL_UNKNOWN {
 		deferTask(task, "battery level is unavailable", reminderOfflineRetryDelay)
 		return
 	}
-	if !reminderBatteryAllowsDelivery(batteryLevel) {
+	if !task.AcknowledgementOnly && !reminderBatteryAllowsDelivery(batteryLevel) {
 		deferTask(task, "battery is not above the low level", reminderLowBatteryRetryDelay)
 		return
 	}
@@ -312,11 +320,17 @@ func processTask(task Task) {
 
 	bcClient, err := robot.Conn.BehaviorControl(ctx)
 	if err != nil {
+		if task.AcknowledgementOnly {
+			return
+		}
 		deferTask(task, "robot became unavailable", reminderOfflineRetryDelay)
 		return
 	}
 
 	if err := acquireBehaviorControl(bcClient); err != nil {
+		if task.AcknowledgementOnly {
+			return
+		}
 		deferTask(task, "robot is not ready for behavior control: "+err.Error(), reminderOfflineRetryDelay)
 		return
 	}
@@ -329,6 +343,17 @@ func processTask(task Task) {
 			}
 		}
 	}()
+	if task.AcknowledgementAnimation != "" {
+		if _, err := robot.Conn.PlayAnimation(ctx, &vectorpb.PlayAnimationRequest{
+			Animation: &vectorpb.Animation{Name: task.AcknowledgementAnimation},
+			Loops:     1,
+		}); err != nil {
+			logger.Println("Productivity: Command acknowledgement failed: " + err.Error())
+		}
+	}
+	if task.AcknowledgementOnly {
+		return
+	}
 
 	if battResp.IsOnChargerPlatform {
 		_, err := robot.Conn.DriveOffCharger(ctx, &vectorpb.DriveOffChargerRequest{})
@@ -341,7 +366,6 @@ func processTask(task Task) {
 	if !taskCanRun(task) {
 		return
 	}
-
 	if !facePersonForReminder(ctx, robot) {
 		logger.Println("Productivity: Reminder presentation canceled because wheel stop could not be confirmed")
 		return

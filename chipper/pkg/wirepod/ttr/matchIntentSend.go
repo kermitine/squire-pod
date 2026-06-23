@@ -262,7 +262,7 @@ func ProcessTextAll(req interface{}, voiceText string, intents []vars.JsonIntent
 	if standingsKind, ok := productivity.MatchStandingsVoiceCommand(voiceText); ok {
 		switch req.(type) {
 		case *vtt.IntentRequest, *vtt.IntentGraphRequest:
-			if _, err := IntentPass(req, "intent_system_noaudio", voiceText, map[string]string{}, false); err != nil {
+			if _, err := IntentPass(req, productivity.StandingsIntentName(standingsKind), voiceText, map[string]string{}, false); err != nil {
 				logger.Println("Unable to finish standings voice intent: " + err.Error())
 			}
 		}
