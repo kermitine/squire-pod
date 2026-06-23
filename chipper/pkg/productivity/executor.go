@@ -104,6 +104,8 @@ const (
 	reminderLowBatteryRetryDelay = 5 * time.Minute
 	confirmationSpeechSettle     = 350 * time.Millisecond
 	confirmationSpeechRetryDelay = 500 * time.Millisecond
+	acknowledgementSettle        = 350 * time.Millisecond
+	acknowledgementRetryDelay    = 500 * time.Millisecond
 )
 
 var (
@@ -345,10 +347,7 @@ func processTask(task Task) {
 		}
 	}()
 	if task.AcknowledgementAnimation != "" {
-		if _, err := robot.Conn.PlayAnimation(ctx, &vectorpb.PlayAnimationRequest{
-			Animation: &vectorpb.Animation{Name: task.AcknowledgementAnimation},
-			Loops:     1,
-		}); err != nil {
+		if err := playAcknowledgementAnimation(ctx, robot, task.AcknowledgementAnimation); err != nil {
 			logger.Println("Productivity: Command acknowledgement failed: " + err.Error())
 		}
 	}
@@ -613,6 +612,55 @@ func sayConfirmationResponse(ctx context.Context, robot *vector.Vector, text str
 		}
 		if attempt == 0 {
 			retryTimer := time.NewTimer(confirmationSpeechRetryDelay)
+			select {
+			case <-ctx.Done():
+				retryTimer.Stop()
+				return ctx.Err()
+			case <-retryTimer.C:
+			}
+		}
+	}
+	return lastErr
+}
+
+func acknowledgementAnimationRequest(name string) *vectorpb.PlayAnimationRequest {
+	return &vectorpb.PlayAnimationRequest{
+		Animation:       &vectorpb.Animation{Name: name},
+		Loops:           1,
+		IgnoreBodyTrack: true,
+		IgnoreHeadTrack: true,
+		IgnoreLiftTrack: true,
+	}
+}
+
+// Voice intent handling can hold its face track briefly after returning its
+// acknowledgement. Wait for that track to settle and retry once if VIC accepts
+// the RPC but reports that the animation could not activate.
+func playAcknowledgementAnimation(ctx context.Context, robot *vector.Vector, name string) error {
+	settleTimer := time.NewTimer(acknowledgementSettle)
+	select {
+	case <-ctx.Done():
+		settleTimer.Stop()
+		return ctx.Err()
+	case <-settleTimer.C:
+	}
+
+	var lastErr error
+	for attempt := 0; attempt < 2; attempt++ {
+		response, err := robot.Conn.PlayAnimation(ctx, acknowledgementAnimationRequest(name))
+		if err == nil && response != nil && response.GetResult() == vectorpb.BehaviorResults_BEHAVIOR_COMPLETE_STATE {
+			return nil
+		}
+		switch {
+		case err != nil:
+			lastErr = err
+		case response == nil:
+			lastErr = fmt.Errorf("animation returned no response")
+		default:
+			lastErr = fmt.Errorf("animation returned %s", response.GetResult().String())
+		}
+		if attempt == 0 {
+			retryTimer := time.NewTimer(acknowledgementRetryDelay)
 			select {
 			case <-ctx.Done():
 				retryTimer.Stop()

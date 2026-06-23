@@ -243,6 +243,16 @@ func TestSpeechWithoutDiacritics(t *testing.T) {
 	}
 }
 
+func TestAcknowledgementAnimationRequestUsesOnlyFaceTrack(t *testing.T) {
+	request := acknowledgementAnimationRequest("anim_knowledgegraph_success_01")
+	if request.GetAnimation().GetName() != "anim_knowledgegraph_success_01" || request.GetLoops() != 1 {
+		t.Fatalf("acknowledgement request has wrong animation: %#v", request)
+	}
+	if !request.GetIgnoreBodyTrack() || !request.GetIgnoreHeadTrack() || !request.GetIgnoreLiftTrack() {
+		t.Fatalf("acknowledgement request can be blocked by physical tracks: %#v", request)
+	}
+}
+
 func TestStandingsPageDurationCoversLongSpeech(t *testing.T) {
 	longSpeech := strings.TrimSpace(strings.Repeat("standing ", 60))
 	if got := estimatedReminderPageDuration(longSpeech); got != 35*time.Second {
