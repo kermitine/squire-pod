@@ -29,6 +29,7 @@ import (
 	"github.com/kercre123/wire-pod/chipper/pkg/scripting"
 	"github.com/kercre123/wire-pod/chipper/pkg/vars"
 	"github.com/kercre123/wire-pod/chipper/pkg/vtt"
+	"golang.org/x/text/unicode/norm"
 	"google.golang.org/protobuf/encoding/protojson"
 )
 
@@ -419,7 +420,7 @@ func processTask(task Task) {
 		phrase := task.Phrases[rand.Intn(len(task.Phrases))]
 		if phrase != "" {
 			if _, err := robot.Conn.SayText(ctx, &vectorpb.SayTextRequest{
-				Text:           phrase,
+				Text:           speechWithoutDiacritics(phrase),
 				UseVectorVoice: true,
 				DurationScalar: 1.0,
 			}); err != nil {
@@ -498,7 +499,7 @@ func processTaskPages(ctx context.Context, robot *vector.Vector, pages []TaskPag
 			continue
 		}
 		response, err := robot.Conn.SayText(ctx, &vectorpb.SayTextRequest{
-			Text:           page.Speech,
+			Text:           speechWithoutDiacritics(page.Speech),
 			UseVectorVoice: true,
 			DurationScalar: 1.0,
 		})
@@ -605,7 +606,7 @@ func sayConfirmationResponse(ctx context.Context, robot *vector.Vector, text str
 
 	var lastErr error
 	for attempt := 0; attempt < 2; attempt++ {
-		if _, err := robot.Conn.SayText(ctx, &vectorpb.SayTextRequest{Text: text, UseVectorVoice: true}); err == nil {
+		if _, err := robot.Conn.SayText(ctx, &vectorpb.SayTextRequest{Text: speechWithoutDiacritics(text), UseVectorVoice: true}); err == nil {
 			return nil
 		} else {
 			lastErr = err
@@ -621,6 +622,19 @@ func sayConfirmationResponse(ctx context.Context, robot *vector.Vector, text str
 		}
 	}
 	return lastErr
+}
+
+// speechWithoutDiacritics keeps names readable in the UI while giving Vector's
+// voice engine a plain spelling that it pronounces more consistently.
+func speechWithoutDiacritics(text string) string {
+	decomposed := norm.NFD.String(text)
+	withoutMarks := strings.Map(func(r rune) rune {
+		if unicode.Is(unicode.Mn, r) {
+			return -1
+		}
+		return r
+	}, decomposed)
+	return norm.NFC.String(withoutMarks)
 }
 
 type faceSearchObservations struct {

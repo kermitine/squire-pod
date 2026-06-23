@@ -235,6 +235,14 @@ func TestEstimatedReminderSpeechDuration(t *testing.T) {
 	}
 }
 
+func TestSpeechWithoutDiacritics(t *testing.T) {
+	input := "Nico Hülkenberg, Sergio Pérez, São Paulo, and Jose\u0301"
+	want := "Nico Hulkenberg, Sergio Perez, Sao Paulo, and Jose"
+	if got := speechWithoutDiacritics(input); got != want {
+		t.Fatalf("speechWithoutDiacritics() = %q, want %q", got, want)
+	}
+}
+
 func TestStandingsPageDurationCoversLongSpeech(t *testing.T) {
 	longSpeech := strings.TrimSpace(strings.Repeat("standing ", 60))
 	if got := estimatedReminderPageDuration(longSpeech); got != 35*time.Second {
