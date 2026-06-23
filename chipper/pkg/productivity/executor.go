@@ -91,7 +91,7 @@ const (
 	reminderViewingHeadAngle     = 20 * math.Pi / 180
 	reminderFaceScanSpeed        = 1.0
 	reminderFaceScanPause        = 250 * time.Millisecond
-	reminderFaceScanMaxSteps     = 18
+	reminderFaceScanMaxSteps     = 23
 	reminderApproachDistanceMM   = 100
 	reminderApproachSpeedMMPS    = 35
 	reminderApproachTimeout      = 6 * time.Second

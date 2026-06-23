@@ -278,10 +278,11 @@ func TestFaceObservationDoesNotRequireMappedPose(t *testing.T) {
 	}
 }
 
-func TestFaceScanIsOneFullRotation(t *testing.T) {
+func TestFaceScanCoversFourHundredSixtyDegrees(t *testing.T) {
 	totalAngle := reminderFaceScanStepAngle * reminderFaceScanMaxSteps
-	if math.Abs(totalAngle-2*math.Pi) > 0.000001 {
-		t.Fatalf("face scan angle = %v, want one full rotation", totalAngle)
+	wantAngle := 460 * math.Pi / 180
+	if math.Abs(totalAngle-wantAngle) > 0.000001 {
+		t.Fatalf("face scan angle = %v, want 460 degrees", totalAngle)
 	}
 }
 
