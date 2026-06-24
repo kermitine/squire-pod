@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"image"
+	"image/color"
 	_ "image/jpeg"
 	_ "image/png"
 	"math"
@@ -86,13 +87,17 @@ const (
 	reminderInitialFaceCheck     = 2 * time.Second
 	reminderFaceTurnTimeout      = 6 * time.Second
 	reminderHeadMoveTimeout      = 5 * time.Second
+	reminderLiftMoveTimeout      = 5 * time.Second
 	reminderFaceTurnActionTag    = 2400001
 	reminderFaceScanActionTag    = 2400002
 	reminderHeadActionTag        = 2400003
+	reminderLiftActionTag        = 2400005
 	reminderFaceScanStepAngle    = math.Pi / 9
 	reminderViewingHeadAngle     = 20 * math.Pi / 180
+	reminderLowestLiftHeightMM   = 32
 	reminderFaceScanSpeed        = 1.0
 	reminderFaceScanPause        = 250 * time.Millisecond
+	reminderFaceScanImageTime    = 2500 * time.Millisecond
 	reminderFaceScanMaxSteps     = 23
 	reminderApproachDistanceMM   = 100
 	reminderApproachSpeedMMPS    = 35
@@ -110,7 +115,6 @@ const (
 	confirmationListenAttempts   = 3
 	acknowledgementSettle        = 350 * time.Millisecond
 	acknowledgementRetryDelay    = 500 * time.Millisecond
-	reminderFaceSearchAnimation  = "anim_knowledgegraph_searching_01"
 )
 
 var (
@@ -383,7 +387,7 @@ func processTask(task Task) {
 	if !taskCanRun(task) {
 		return
 	}
-	if !facePersonForReminder(ctx, robot, task.RobotESN) {
+	if !facePersonForReminder(ctx, robot) {
 		logger.Println("Productivity: Reminder presentation canceled because wheel stop could not be confirmed")
 		return
 	}
@@ -650,30 +654,6 @@ func acknowledgementAnimationRequest(name string) *vectorpb.PlayAnimationRequest
 	}
 }
 
-func reminderFaceSearchAnimationRequest() *vectorpb.PlayAnimationRequest {
-	return &vectorpb.PlayAnimationRequest{
-		Animation:       &vectorpb.Animation{Name: reminderFaceSearchAnimation},
-		Loops:           1,
-		IgnoreBodyTrack: true,
-		IgnoreHeadTrack: true,
-		IgnoreLiftTrack: true,
-	}
-}
-
-func playReminderFaceSearchAnimation(ctx context.Context, robot *vector.Vector) error {
-	response, err := robot.Conn.PlayAnimation(ctx, reminderFaceSearchAnimationRequest())
-	if err != nil {
-		return err
-	}
-	if response == nil {
-		return fmt.Errorf("animation returned no response")
-	}
-	if response.GetResult() != vectorpb.BehaviorResults_BEHAVIOR_COMPLETE_STATE {
-		return fmt.Errorf("animation returned %s", response.GetResult().String())
-	}
-	return nil
-}
-
 // Voice intent handling can hold its face track briefly after returning its
 // acknowledgement. Wait for that track to settle and retry once if VIC accepts
 // the RPC but reports that the animation could not activate.
@@ -754,9 +734,14 @@ func (o *faceSearchObservations) face() (int32, bool) {
 // Scan in small, completed turns until the event stream reports a tracked face,
 // explicitly face it, and make one short, cliff-monitored approach. Presentation
 // is gated on positive confirmation that both wheels have stopped.
-func facePersonForReminder(ctx context.Context, robot *vector.Vector, esn string) bool {
+func facePersonForReminder(ctx context.Context, robot *vector.Vector) bool {
+	positionReminderLiftDown(ctx, robot)
 	positionReminderHeadForViewing(ctx, robot, "before face scan")
 	defer positionReminderHeadForViewing(ctx, robot, "before reminder display")
+	var faceSearchImageExpiresAt time.Time
+	defer func() {
+		waitForReminderFaceSearchImage(ctx, faceSearchImageExpiresAt)
+	}()
 
 	searchCtx, cancel := context.WithTimeout(ctx, reminderFaceSearchTimeout)
 	observations := &faceSearchObservations{}
@@ -789,14 +774,8 @@ func facePersonForReminder(ctx context.Context, robot *vector.Vector, esn string
 	}
 
 	logger.Println("Productivity: Looking for a person before delivering reminder")
-	if err := playReminderFaceSearchAnimation(searchCtx, robot); err != nil && searchCtx.Err() == nil {
-		logger.Println("Productivity: Face-search animation failed; continuing scan: " + err.Error())
-	}
-	if ip := robotIPForESN(esn); ip != "" {
-		if err := stopReminderAnimationAudio(searchCtx, ip); err != nil && searchCtx.Err() == nil {
-			logger.Println("Productivity: Could not stop face-search audio: " + err.Error())
-		}
-	}
+	displayReminderFaceSearchExpression(searchCtx, robot)
+	faceSearchImageExpiresAt = time.Now().Add(reminderFaceScanImageTime)
 
 	// Give face detection a moment before beginning the scan. Each turn is a
 	// small, completed action, so observing a face prevents any further turns.
@@ -816,6 +795,8 @@ scanLoop:
 		if searchCtx.Err() != nil {
 			break
 		}
+		displayReminderFaceSearchExpression(searchCtx, robot)
+		faceSearchImageExpiresAt = time.Now().Add(reminderFaceScanImageTime)
 
 		turnResponse, err := robot.Conn.TurnInPlace(searchCtx, &vectorpb.TurnInPlaceRequest{
 			AngleRad:        float32(reminderFaceScanStepAngle),
@@ -1050,6 +1031,81 @@ func positionReminderHeadForViewing(ctx context.Context, robot *vector.Vector, r
 	}
 }
 
+func positionReminderLiftDown(ctx context.Context, robot *vector.Vector) {
+	liftCtx, cancel := context.WithTimeout(ctx, reminderLiftMoveTimeout)
+	defer cancel()
+	response, err := robot.Conn.SetLiftHeight(liftCtx, reminderLiftHeightRequest())
+	if err != nil {
+		logger.Println("Productivity: Could not lower lift before face scan: " + err.Error())
+		return
+	}
+	if response == nil || response.GetResult() == nil || response.GetResult().GetCode() != vectorpb.ActionResult_ACTION_RESULT_SUCCESS {
+		logger.Println("Productivity: Lift did not reach its lowest position before face scan")
+	}
+}
+
+func reminderLiftHeightRequest() *vectorpb.SetLiftHeightRequest {
+	return &vectorpb.SetLiftHeightRequest{
+		HeightMm:          reminderLowestLiftHeightMM,
+		MaxSpeedRadPerSec: 10,
+		AccelRadPerSec2:   10,
+		DurationSec:       0,
+		IdTag:             reminderLiftActionTag,
+		NumRetries:        1,
+	}
+}
+
+func displayReminderFaceSearchExpression(ctx context.Context, robot *vector.Vector) {
+	if _, err := robot.Conn.DisplayFaceImageRGB(ctx, reminderFaceSearchImageRequest()); err != nil && ctx.Err() == nil {
+		logger.Println("Productivity: Could not display face-search expression: " + err.Error())
+	}
+}
+
+func waitForReminderFaceSearchImage(ctx context.Context, expiresAt time.Time) {
+	remaining := time.Until(expiresAt.Add(reminderImageSettleDelay))
+	if remaining <= 0 {
+		return
+	}
+	timer := time.NewTimer(remaining)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+	case <-timer.C:
+	}
+}
+
+func reminderFaceSearchImageRequest() *vectorpb.DisplayFaceImageRGBRequest {
+	return &vectorpb.DisplayFaceImageRGBRequest{
+		FaceData:         reminderFaceSearchData(),
+		DurationMs:       uint32(reminderFaceScanImageTime / time.Millisecond),
+		InterruptRunning: true,
+	}
+}
+
+func reminderFaceSearchData() []byte {
+	face := image.NewNRGBA(image.Rect(0, 0, 184, 96))
+	eyeColor := color.NRGBA{R: 0, G: 255, B: 225, A: 255}
+	for _, centerX := range []int{58, 126} {
+		for y := 24; y < 70; y++ {
+			for x := centerX - 17; x <= centerX+17; x++ {
+				dx := float64(x-centerX) / 17
+				dy := float64(y-47) / 23
+				if dx*dx+dy*dy <= 1 {
+					face.SetNRGBA(x, y, eyeColor)
+				}
+			}
+		}
+	}
+	for x := 86; x <= 98; x += 6 {
+		for y := 78; y <= 82; y++ {
+			for dotX := x - 2; dotX <= x+2; dotX++ {
+				face.SetNRGBA(dotX, y, eyeColor)
+			}
+		}
+	}
+	return convertImageToVectorFaceData(face)
+}
+
 func reminderHeadAngleRequest() *vectorpb.SetHeadAngleRequest {
 	return &vectorpb.SetHeadAngleRequest{
 		AngleRad:          float32(reminderViewingHeadAngle),
@@ -1199,6 +1255,18 @@ func NotifyConfirmationNoAudio(esn string) bool {
 	return session.queueRetry("No confirmation audio")
 }
 
+// NotifyConfirmationUnmatched retries a pending confirmation when speech was
+// heard but did not resolve to a yes/no intent.
+func NotifyConfirmationUnmatched(esn string) bool {
+	confirmationListeningSessions.Lock()
+	session := confirmationListeningSessions.byESN[esn]
+	confirmationListeningSessions.Unlock()
+	if session == nil {
+		return false
+	}
+	return session.queueRetry("Confirmation was not yes or no")
+}
+
 func (s *confirmationListeningSession) queueRetry(reason string) bool {
 	s.mu.Lock()
 	if s.ip == "" || s.retryPending || s.attempts >= confirmationListenAttempts || s.ctx.Err() != nil {
@@ -1264,24 +1332,6 @@ func robotIPForESN(esn string) string {
 		}
 	}
 	return ""
-}
-
-func stopReminderAnimationAudio(ctx context.Context, ip string) error {
-	url := fmt.Sprintf("http://%s:8889/consolefunccall?func=StopAllAudioEvents", ip)
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return err
-	}
-	client := &http.Client{Timeout: 2 * time.Second}
-	response, err := client.Do(request)
-	if err != nil {
-		return err
-	}
-	defer response.Body.Close()
-	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-		return fmt.Errorf("robot console returned %s", response.Status)
-	}
-	return nil
 }
 
 func classifyConfirmationIntent(intent string) confirmationResult {

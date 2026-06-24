@@ -35,6 +35,7 @@ func (s *Server) ProcessIntent(req *vtt.IntentRequest) (*vtt.IntentResponse, err
 		if err != nil {
 			if err.Error() == "inference not understood" {
 				logger.Println("No intent was matched")
+				productivity.NotifyConfirmationUnmatched(speechReq.Device)
 				ttr.IntentPass(req, "intent_system_unmatched", "voice processing error", map[string]string{"error": err.Error()}, true)
 				return nil, nil
 			}
@@ -47,6 +48,11 @@ func (s *Server) ProcessIntent(req *vtt.IntentRequest) (*vtt.IntentResponse, err
 		return nil, nil
 	}
 	if !successMatched {
+		if productivity.NotifyConfirmationUnmatched(speechReq.Device) {
+			logger.Println("No confirmation intent was matched; listening again.")
+			ttr.IntentPass(req, "intent_system_unmatched", transcribedText, map[string]string{"": ""}, false)
+			return nil, nil
+		}
 		if vars.APIConfig.Knowledge.IntentGraph && vars.APIConfig.Knowledge.Enable {
 			logger.Println("Making LLM request for device " + req.Device + "...")
 			_, err := ttr.StreamingKGSim(req, req.Device, transcribedText, false)

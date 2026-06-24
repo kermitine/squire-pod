@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/kercre123/wire-pod/chipper/pkg/logger"
+	"github.com/kercre123/wire-pod/chipper/pkg/productivity"
 	"github.com/kercre123/wire-pod/chipper/pkg/vars"
 	"github.com/kercre123/wire-pod/chipper/pkg/vtt"
 	sr "github.com/kercre123/wire-pod/chipper/pkg/wirepod/speechrequest"
@@ -33,6 +34,7 @@ func (s *Server) ProcessIntentGraph(req *vtt.IntentGraphRequest) (*vtt.IntentGra
 		if err != nil {
 			if err.Error() == "inference not understood" {
 				logger.Println("Bot " + speechReq.Device + " No intent was matched")
+				productivity.NotifyConfirmationUnmatched(speechReq.Device)
 				ttr.IntentPass(req, "intent_system_unmatched", "voice processing error", map[string]string{"error": err.Error()}, true)
 				return nil, nil
 			}
@@ -63,6 +65,11 @@ func (s *Server) ProcessIntentGraph(req *vtt.IntentGraphRequest) (*vtt.IntentGra
 	// 	return nil, nil
 	// }
 	if !successMatched {
+		if productivity.NotifyConfirmationUnmatched(speechReq.Device) {
+			logger.Println("Bot " + speechReq.Device + " No confirmation intent was matched; listening again.")
+			ttr.IntentPass(req, "intent_system_unmatched", transcribedText, map[string]string{"": ""}, false)
+			return nil, nil
+		}
 		if vars.APIConfig.Knowledge.IntentGraph && vars.APIConfig.Knowledge.Enable {
 			if vars.APIConfig.Knowledge.Provider == "houndify" {
 				if len([]rune(transcribedText)) >= 8 {
