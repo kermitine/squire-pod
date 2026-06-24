@@ -80,6 +80,7 @@ func TestClassifyConfirmationIntent(t *testing.T) {
 		{name: "affirmative", intent: `{"intent":"intent_imperative_affirmative"}`, want: confirmationAccepted},
 		{name: "global yes", intent: `{"intent":"intent_global_yes"}`, want: confirmationAccepted},
 		{name: "negative", intent: `{"intent":"intent_imperative_negative"}`, want: confirmationDeclined},
+		{name: "no audio", intent: `{"intent":"intent_system_noaudio"}`, want: confirmationNoAudio},
 		{name: "unrelated", intent: `{"intent":"intent_greeting_hello"}`, want: confirmationTimedOut},
 	}
 
@@ -253,6 +254,16 @@ func TestAcknowledgementAnimationRequestUsesOnlyFaceTrack(t *testing.T) {
 	}
 }
 
+func TestReminderFaceSearchAnimationRequestUsesOnlyFaceTrack(t *testing.T) {
+	request := reminderFaceSearchAnimationRequest()
+	if request.GetAnimation().GetName() != reminderFaceSearchAnimation || request.GetLoops() != 1 {
+		t.Fatalf("face-search request has wrong animation: %#v", request)
+	}
+	if !request.GetIgnoreBodyTrack() || !request.GetIgnoreHeadTrack() || !request.GetIgnoreLiftTrack() {
+		t.Fatalf("face-search request can block physical scan tracks: %#v", request)
+	}
+}
+
 func TestStandingsPageDurationCoversLongSpeech(t *testing.T) {
 	longSpeech := strings.TrimSpace(strings.Repeat("standing ", 60))
 	if got := estimatedReminderPageDuration(longSpeech); got != 35*time.Second {
@@ -261,6 +272,17 @@ func TestStandingsPageDurationCoversLongSpeech(t *testing.T) {
 	task := Task{Pages: []TaskPage{{Speech: longSpeech}, {Speech: longSpeech}, {Speech: longSpeech}}}
 	if got := reminderTaskTimeout(task); got <= reminderDefaultTaskTimeout {
 		t.Fatalf("reminderTaskTimeout() = %v, want more than %v", got, reminderDefaultTaskTimeout)
+	}
+}
+
+func TestReminderTaskTimeoutIncludesWorkflowAndConfirmationMargin(t *testing.T) {
+	task := Task{RequireConfirmation: true}
+	minimum := reminderFaceSearchTimeout + reminderWorkflowOverhead + reminderConfirmationTimeout
+	if got := reminderTaskTimeout(task); got < minimum {
+		t.Fatalf("reminderTaskTimeout() = %v, want at least %v", got, minimum)
+	}
+	if reminderTaskTimeout(Task{}) < reminderDefaultTaskTimeout {
+		t.Fatal("ordinary reminder timeout is shorter than the default safety budget")
 	}
 }
 

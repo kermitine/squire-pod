@@ -72,6 +72,7 @@ const (
 	confirmationTimedOut confirmationResult = iota
 	confirmationAccepted
 	confirmationDeclined
+	confirmationNoAudio
 
 	reminderImageDisplayDuration = 3 * time.Second
 	reminderImageSettleDelay     = 250 * time.Millisecond
@@ -79,8 +80,10 @@ const (
 	reminderPageSpeechBase       = 5 * time.Second
 	reminderPageSpeechPerWord    = 500 * time.Millisecond
 	reminderPageMaximumDuration  = 60 * time.Second
-	reminderDefaultTaskTimeout   = 80 * time.Second
+	reminderDefaultTaskTimeout   = 3 * time.Minute
 	reminderFaceSearchTimeout    = 35 * time.Second
+	reminderWorkflowOverhead     = 90 * time.Second
+	reminderConfirmationTimeout  = 30 * time.Second
 	reminderInitialFaceCheck     = 2 * time.Second
 	reminderFaceTurnTimeout      = 6 * time.Second
 	reminderHeadMoveTimeout      = 5 * time.Second
@@ -104,8 +107,11 @@ const (
 	reminderLowBatteryRetryDelay = 5 * time.Minute
 	confirmationSpeechSettle     = 350 * time.Millisecond
 	confirmationSpeechRetryDelay = 500 * time.Millisecond
+	confirmationListenRetryDelay = 750 * time.Millisecond
+	confirmationListenAttempts   = 3
 	acknowledgementSettle        = 350 * time.Millisecond
 	acknowledgementRetryDelay    = 500 * time.Millisecond
+	reminderFaceSearchAnimation  = "anim_knowledgegraph_searching_01"
 )
 
 var (
@@ -521,10 +527,10 @@ func processTaskPages(ctx context.Context, robot *vector.Vector, pages []TaskPag
 }
 
 func reminderTaskTimeout(task Task) time.Duration {
-	if len(task.Pages) == 0 {
-		return reminderDefaultTaskTimeout
+	timeout := reminderFaceSearchTimeout + reminderWorkflowOverhead
+	if task.RequireConfirmation {
+		timeout += reminderConfirmationTimeout
 	}
-	timeout := reminderFaceSearchTimeout + 30*time.Second
 	for _, page := range task.Pages {
 		timeout += estimatedReminderPageDuration(page.Speech)
 	}
@@ -631,6 +637,37 @@ func acknowledgementAnimationRequest(name string) *vectorpb.PlayAnimationRequest
 		IgnoreHeadTrack: true,
 		IgnoreLiftTrack: true,
 	}
+}
+
+func reminderFaceSearchAnimationRequest() *vectorpb.PlayAnimationRequest {
+	return &vectorpb.PlayAnimationRequest{
+		Animation:       &vectorpb.Animation{Name: reminderFaceSearchAnimation},
+		Loops:           1,
+		IgnoreBodyTrack: true,
+		IgnoreHeadTrack: true,
+		IgnoreLiftTrack: true,
+	}
+}
+
+func playReminderFaceSearchAnimation(ctx context.Context, robot *vector.Vector) <-chan struct{} {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for ctx.Err() == nil {
+			response, err := robot.Conn.PlayAnimation(ctx, reminderFaceSearchAnimationRequest())
+			if err != nil {
+				if ctx.Err() == nil {
+					logger.Println("Productivity: Face-search animation failed: " + err.Error())
+				}
+				return
+			}
+			if response == nil || response.GetResult() != vectorpb.BehaviorResults_BEHAVIOR_COMPLETE_STATE {
+				logger.Println("Productivity: Face-search animation did not complete")
+				return
+			}
+		}
+	}()
+	return done
 }
 
 // Voice intent handling can hold its face track briefly after returning its
@@ -748,6 +785,7 @@ func facePersonForReminder(ctx context.Context, robot *vector.Vector) bool {
 	}
 
 	logger.Println("Productivity: Looking for a person before delivering reminder")
+	faceAnimationDone := playReminderFaceSearchAnimation(searchCtx, robot)
 
 	// Give face detection a moment before beginning the scan. Each turn is a
 	// small, completed action, so observing a face prevents any further turns.
@@ -798,6 +836,7 @@ scanLoop:
 		}
 	}
 	cancel()
+	<-faceAnimationDone
 
 	faceID, faceObserved := observations.face()
 	if !faceObserved {
@@ -1060,7 +1099,7 @@ func releaseBehaviorControl(bcClient behaviorControlStream) error {
 }
 
 func waitForConfirmation(ctx context.Context, robot *vector.Vector, esn string) (confirmationResult, error) {
-	confirmationCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	confirmationCtx, cancel := context.WithTimeout(ctx, reminderConfirmationTimeout)
 	defer cancel()
 
 	// Give VIC time to process the control release before simulating the
@@ -1081,20 +1120,17 @@ func waitForConfirmation(ctx context.Context, robot *vector.Vector, esn string) 
 		}
 	}
 
-	if ip != "" {
-		go func() {
-			url := fmt.Sprintf("http://%s:8889/consolevarset?key=FakeButtonPressType&value=singlePressDetected", ip)
-			client := &http.Client{Timeout: 2 * time.Second}
-			resp, err := client.Get(url)
-			if err == nil {
-				resp.Body.Close()
-			}
-		}()
-	}
-
 	eventStream, err := robot.Conn.EventStream(confirmationCtx, &vectorpb.EventRequest{})
 	if err != nil {
 		return confirmationTimedOut, err
+	}
+	listenAttempts := 0
+	if ip != "" {
+		if err := triggerConfirmationListening(confirmationCtx, ip); err != nil {
+			logger.Println("Productivity: Could not start confirmation listening: " + err.Error())
+		} else {
+			listenAttempts++
+		}
 	}
 
 	for {
@@ -1121,8 +1157,42 @@ func waitForConfirmation(ctx context.Context, robot *vector.Vector, esn string) 
 			return confirmationAccepted, nil
 		case confirmationDeclined:
 			return confirmationDeclined, nil
+		case confirmationNoAudio:
+			if ip == "" || listenAttempts >= confirmationListenAttempts {
+				return confirmationTimedOut, nil
+			}
+			retryTimer := time.NewTimer(confirmationListenRetryDelay)
+			select {
+			case <-confirmationCtx.Done():
+				retryTimer.Stop()
+				return confirmationTimedOut, nil
+			case <-retryTimer.C:
+			}
+			if err := triggerConfirmationListening(confirmationCtx, ip); err != nil {
+				return confirmationTimedOut, err
+			}
+			listenAttempts++
+			logger.Println(fmt.Sprintf("Productivity: No confirmation audio; listening again (%d/%d)", listenAttempts, confirmationListenAttempts))
 		}
 	}
+}
+
+func triggerConfirmationListening(ctx context.Context, ip string) error {
+	url := fmt.Sprintf("http://%s:8889/consolevarset?key=FakeButtonPressType&value=singlePressDetected", ip)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return err
+	}
+	client := &http.Client{Timeout: 2 * time.Second}
+	response, err := client.Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		return fmt.Errorf("robot console returned %s", response.Status)
+	}
+	return nil
 }
 
 func classifyConfirmationIntent(intent string) confirmationResult {
@@ -1131,6 +1201,9 @@ func classifyConfirmationIntent(intent string) confirmationResult {
 	}
 	if strings.Contains(intent, "intent_imperative_negative") {
 		return confirmationDeclined
+	}
+	if strings.Contains(intent, "intent_system_noaudio") {
+		return confirmationNoAudio
 	}
 	return confirmationTimedOut
 }
