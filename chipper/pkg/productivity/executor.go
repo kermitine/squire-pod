@@ -97,16 +97,14 @@ const (
 	reminderFaceScanSpeed        = 1.0
 	reminderFaceScanPause        = 250 * time.Millisecond
 	reminderFaceScanMaxSteps     = 23
-	reminderApproachDistanceMM   = 100
 	reminderApproachSpeedMMPS    = 35
-	reminderApproachTimeout      = 6 * time.Second
+	reminderApproachTimeout      = 30 * time.Second
 	reminderDriveStateWarmup     = 750 * time.Millisecond
 	reminderDriveStopTimeout     = 3 * time.Second
 	reminderDriveVerifyTimeout   = 4 * time.Second
 	reminderDriveStopSettle      = 200 * time.Millisecond
 	reminderDriveStopRetryDelay  = 250 * time.Millisecond
 	reminderDriveStopAttempts    = 2
-	reminderApproachActionTag    = 2400004
 	reminderAvailabilityTimeout  = 10 * time.Second
 	reminderOfflineRetryDelay    = 30 * time.Second
 	reminderLowBatteryRetryDelay = 5 * time.Minute
@@ -792,7 +790,7 @@ func (o *faceSearchObservations) face() (int32, bool) {
 }
 
 // Scan in small, completed turns until the event stream reports a tracked face,
-// explicitly face it, and make one short, cliff-monitored approach. Presentation
+// explicitly face it, and make a cliff-monitored approach. Presentation
 // is gated on positive confirmation that both wheels have stopped.
 func facePersonForReminder(ctx context.Context, robot *vector.Vector, esn string) bool {
 	positionReminderLiftDown(ctx, robot)
@@ -915,11 +913,6 @@ scanLoop:
 	return driveStraightForReminder(ctx, robot)
 }
 
-type reminderDriveResult struct {
-	response *vectorpb.DriveStraightResponse
-	err      error
-}
-
 func driveStraightForReminder(ctx context.Context, robot *vector.Vector) bool {
 	motionCtx, cancel := context.WithTimeout(ctx, reminderApproachTimeout)
 	defer cancel()
@@ -930,7 +923,9 @@ func driveStraightForReminder(ctx context.Context, robot *vector.Vector) bool {
 	}
 	states := make(chan *vectorpb.RobotState, 4)
 	cliffSeen := make(chan struct{}, 1)
+	stateStreamEnded := make(chan struct{})
 	go func() {
+		defer close(stateStreamEnded)
 		for {
 			response, recvErr := eventStream.Recv()
 			if recvErr != nil {
@@ -970,37 +965,25 @@ func driveStraightForReminder(ctx context.Context, robot *vector.Vector) bool {
 	case <-warmup.C:
 		logger.Println("Productivity: No robot safety state received; skipping reminder approach")
 		return true
+	case <-stateStreamEnded:
+		logger.Println("Productivity: Robot safety state stream ended; skipping reminder approach")
+		return true
 	case <-motionCtx.Done():
 		return true
 	}
 
 	logger.Println("Productivity: Driving straight toward observed face before reminder")
-	driveDone := make(chan reminderDriveResult, 1)
-	go func() {
-		response, driveErr := robot.Conn.DriveStraight(motionCtx, reminderDriveRequest())
-		driveDone <- reminderDriveResult{response: response, err: driveErr}
-	}()
-
-	var result reminderDriveResult
-	select {
-	case result = <-driveDone:
-	case <-cliffSeen:
-		logger.Println("Productivity: Cliff detected during reminder approach; canceling drive")
-		cancelReminderDrive(robot)
+	if _, err := robot.Conn.DriveWheels(motionCtx, reminderDriveRequest()); err != nil {
+		logger.Println("Productivity: Reminder approach could not start: " + err.Error())
+	} else {
 		select {
-		case result = <-driveDone:
+		case <-cliffSeen:
+			logger.Println("Productivity: Cliff detected during reminder approach; stopping drive")
+		case <-stateStreamEnded:
+			logger.Println("Productivity: Robot safety state stream ended during reminder approach; stopping drive")
 		case <-motionCtx.Done():
-			result.err = motionCtx.Err()
+			logger.Println("Productivity: Reminder approach reached its safety timeout; stopping drive")
 		}
-	case <-motionCtx.Done():
-		logger.Println("Productivity: Reminder approach timed out; canceling drive")
-		cancelReminderDrive(robot)
-		result.err = motionCtx.Err()
-	}
-	if result.err != nil {
-		logger.Println("Productivity: Reminder approach ended without success: " + result.err.Error())
-	} else if result.response == nil || result.response.GetResult() == nil || result.response.GetResult().GetCode() != vectorpb.ActionResult_ACTION_RESULT_SUCCESS {
-		logger.Println("Productivity: Reminder approach was stopped by robot safety")
 	}
 
 	if err := stopReminderMotors(ctx, robot); err != nil {
@@ -1016,13 +999,12 @@ func driveStraightForReminder(ctx context.Context, robot *vector.Vector) bool {
 	return true
 }
 
-func reminderDriveRequest() *vectorpb.DriveStraightRequest {
-	return &vectorpb.DriveStraightRequest{
-		SpeedMmps:           reminderApproachSpeedMMPS,
-		DistMm:              reminderApproachDistanceMM,
-		ShouldPlayAnimation: false,
-		IdTag:               reminderApproachActionTag,
-		NumRetries:          0,
+func reminderDriveRequest() *vectorpb.DriveWheelsRequest {
+	return &vectorpb.DriveWheelsRequest{
+		LeftWheelMmps:   reminderApproachSpeedMMPS,
+		RightWheelMmps:  reminderApproachSpeedMMPS,
+		LeftWheelMmps2:  reminderApproachSpeedMMPS,
+		RightWheelMmps2: reminderApproachSpeedMMPS,
 	}
 }
 
@@ -1038,17 +1020,6 @@ func reminderRobotStateStopped(state *vectorpb.RobotState) bool {
 		return false
 	}
 	return math.Abs(float64(state.GetLeftWheelSpeedMmps())) < 1 && math.Abs(float64(state.GetRightWheelSpeedMmps())) < 1
-}
-
-func cancelReminderDrive(robot *vector.Vector) {
-	cancelCtx, cancel := context.WithTimeout(context.Background(), reminderDriveStopTimeout)
-	if _, err := robot.Conn.CancelActionByIdTag(cancelCtx, &vectorpb.CancelActionByIdTagRequest{IdTag: reminderApproachActionTag}); err != nil {
-		logger.Println("Productivity: Could not cancel reminder drive action: " + err.Error())
-	}
-	cancel()
-	if err := stopReminderMotors(context.Background(), robot); err != nil {
-		logger.Println("Productivity: Could not stop reminder drive motors: " + err.Error())
-	}
 }
 
 func stopReminderMotors(ctx context.Context, robot *vector.Vector) error {

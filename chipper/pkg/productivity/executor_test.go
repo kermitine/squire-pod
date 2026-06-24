@@ -328,16 +328,16 @@ func TestReminderLiftIsLoweredForScanning(t *testing.T) {
 	}
 }
 
-func TestReminderDriveRequestIsShortAndBounded(t *testing.T) {
+func TestReminderDriveRequestHasNoDistanceCap(t *testing.T) {
 	request := reminderDriveRequest()
-	if request.DistMm <= 0 || request.DistMm > 100 {
-		t.Fatalf("approach distance = %v, want 1..100 mm", request.DistMm)
+	if request.LeftWheelMmps <= 0 || request.LeftWheelMmps > 40 {
+		t.Fatalf("approach speed = %v, want 1..40 mm/s", request.LeftWheelMmps)
 	}
-	if request.SpeedMmps <= 0 || request.SpeedMmps > 40 {
-		t.Fatalf("approach speed = %v, want 1..40 mm/s", request.SpeedMmps)
+	if request.LeftWheelMmps != request.RightWheelMmps || request.LeftWheelMmps2 != request.RightWheelMmps2 || request.LeftWheelMmps != request.LeftWheelMmps2 {
+		t.Fatalf("approach wheel speeds are not straight and continuous: %#v", request)
 	}
-	if request.IdTag != reminderApproachActionTag || request.NumRetries != 0 || request.ShouldPlayAnimation {
-		t.Fatalf("approach request is not safely bounded: %#v", request)
+	if reminderApproachTimeout < 30*time.Second {
+		t.Fatalf("approach safety timeout = %v, want at least 30 seconds", reminderApproachTimeout)
 	}
 }
 
