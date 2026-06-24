@@ -1165,6 +1165,8 @@ func waitForConfirmation(ctx context.Context, robot *vector.Vector, esn string) 
 			return confirmationAccepted, nil
 		case confirmationDeclined:
 			return confirmationDeclined, nil
+		case confirmationTimedOut:
+			listeningSession.queueRetry("Confirmation was not yes or no")
 		}
 	}
 }
@@ -1195,10 +1197,10 @@ func NotifyConfirmationNoAudio(esn string) bool {
 	if session == nil {
 		return false
 	}
-	return session.queueRetry()
+	return session.queueRetry("No confirmation audio")
 }
 
-func (s *confirmationListeningSession) queueRetry() bool {
+func (s *confirmationListeningSession) queueRetry(reason string) bool {
 	s.mu.Lock()
 	if s.ip == "" || s.retryPending || s.attempts >= confirmationListenAttempts || s.ctx.Err() != nil {
 		s.mu.Unlock()
@@ -1233,7 +1235,7 @@ func (s *confirmationListeningSession) queueRetry() bool {
 			}
 			return
 		}
-		logger.Println(fmt.Sprintf("Productivity: No confirmation audio; listening again (%d/%d)", attempt, confirmationListenAttempts))
+		logger.Println(fmt.Sprintf("Productivity: %s; listening again (%d/%d)", reason, attempt, confirmationListenAttempts))
 	}()
 	return true
 }
