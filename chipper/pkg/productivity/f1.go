@@ -132,6 +132,14 @@ func resetF1NotificationState() {
 }
 
 func InjectTestF1Update(robotESN string) error {
+	return injectTestF1Leaderboard(robotESN, false)
+}
+
+func InjectTestF1QualifyingUpdate(robotESN string) error {
+	return injectTestF1Leaderboard(robotESN, true)
+}
+
+func injectTestF1Leaderboard(robotESN string, qualifying bool) error {
 	if robotESN == "" || robotESN == "None" {
 		robotESN = productivityTargetRobot()
 	}
@@ -139,13 +147,20 @@ func InjectTestF1Update(robotESN string) error {
 		return fmt.Errorf("no target robot is configured")
 	}
 	event, race := syntheticF1Race()
-	pages, err := f1LeaderboardTaskPages(event, race, "live")
+	kind := "live"
+	logName := "top-ten"
+	if qualifying {
+		event, race = syntheticF1Qualifying()
+		kind = "final"
+		logName = "qualifying"
+	}
+	pages, err := f1LeaderboardTaskPages(event, race, kind)
 	if err != nil {
 		return err
 	}
 	select {
-	case taskQueue <- Task{ID: fmt.Sprintf("f1_test_%d", time.Now().UnixNano()), RobotESN: robotESN, Pages: pages, Source: "f1", configurationGeneration: currentConfigurationGeneration()}:
-		logger.Println("Productivity: F1 top-ten test update queued")
+	case taskQueue <- Task{ID: fmt.Sprintf("f1_test_%s_%d", logName, time.Now().UnixNano()), RobotESN: robotESN, Pages: pages, Source: "f1", configurationGeneration: currentConfigurationGeneration()}:
+		logger.Println("Productivity: F1 " + logName + " test update queued")
 		return nil
 	default:
 		return fmt.Errorf("reminder queue is full")
@@ -173,6 +188,15 @@ func syntheticF1Race() (f1Event, f1Competition) {
 		race.Competitors = append(race.Competitors, competitor)
 	}
 	return event, race
+}
+
+func syntheticF1Qualifying() (f1Event, f1Competition) {
+	event, qualifying := syntheticF1Race()
+	qualifying.ID = "f1-test-qualifying"
+	qualifying.Type.Abbreviation = "Qual"
+	qualifying.Status.Type.State = "post"
+	qualifying.Status.Type.ShortDetail = "Final"
+	return event, qualifying
 }
 
 func checkF1Races() {

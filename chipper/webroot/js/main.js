@@ -7,7 +7,7 @@ let reminderCounter = 0;
 let productivityImageLibrary = [];
 
 // VERSION REMINDER: Increment this for every repository change (V1, V2, ...).
-const ROCKET_POD_VERSION = "V32";
+const ROCKET_POD_VERSION = "V33";
 
 const nbaTeams = [
   ["ATL", "Atlanta Hawks"], ["BOS", "Boston Celtics"], ["BKN", "Brooklyn Nets"],
@@ -602,6 +602,20 @@ function testF1Reminder() {
     })
     .then(text => displayMessage("addProductivityProviderAPIStatus", text))
     .catch(error => displayMessage("addProductivityProviderAPIStatus", "F1 test failed: " + error.message));
+}
+
+function testF1QualifyingReminder() {
+  const formData = new FormData();
+  formData.append("target_robot", getE("targetBot").value);
+  displayMessage("addProductivityProviderAPIStatus", "Generating F1 qualifying result...");
+  fetch("/api/test_f1_qualifying_reminder", { method: "POST", body: formData })
+    .then(async response => {
+      const text = await response.text();
+      if (!response.ok) throw new Error(text);
+      return text;
+    })
+    .then(text => displayMessage("addProductivityProviderAPIStatus", text))
+    .catch(error => displayMessage("addProductivityProviderAPIStatus", "F1 qualifying test failed: " + error.message));
 }
 
 function toggleAccordion(id) {

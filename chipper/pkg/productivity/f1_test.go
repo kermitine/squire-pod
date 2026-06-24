@@ -122,6 +122,20 @@ func TestF1QualifyingLeaderboardSpeech(t *testing.T) {
 	}
 }
 
+func TestSyntheticF1QualifyingLeaderboard(t *testing.T) {
+	event, session := syntheticF1Qualifying()
+	if session.ID != "f1-test-qualifying" || session.Type.Abbreviation != "Qual" || session.Status.Type.State != "post" {
+		t.Fatalf("syntheticF1Qualifying() session = %#v", session)
+	}
+	pages, err := f1LeaderboardTaskPages(event, session, "final")
+	if err != nil {
+		t.Fatalf("f1LeaderboardTaskPages() error = %v", err)
+	}
+	if len(pages) != 2 || !strings.Contains(pages[0].Speech, "Final F1 qualifying result") {
+		t.Fatalf("qualifying test pages = %#v", pages)
+	}
+}
+
 func TestF1AllowedHours(t *testing.T) {
 	tests := []struct {
 		name       string
