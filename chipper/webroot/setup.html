@@ -234,6 +234,24 @@
 
         <hr class="small-hr" style="width: 100px; border-color: #333;">
 
+        <div id="productivityImageLibrarySection" class="productivity-image-library">
+            <div class="manual-header">
+                <div>
+                    <h3>Reminder Image Library</h3>
+                    <small class="desc">Upload images once, then choose them from any native reminder.</small>
+                </div>
+                <button type="button" onclick="loadProductivityImages()" class="btn-generic">Refresh</button>
+            </div>
+            <div class="productivity-image-upload">
+                <input id="productivityImageUpload" type="file" accept="image/png,image/jpeg" multiple>
+                <button id="productivityImageUploadBtn" type="button" onclick="uploadProductivityImages()" class="btn-solid-green">Upload Images</button>
+            </div>
+            <div id="productivityImageLibraryStatus" class="productivity-image-library-status" aria-live="polite"></div>
+            <div id="productivityImageLibraryGrid" class="productivity-image-library-grid"></div>
+        </div>
+
+        <hr class="small-hr" style="width: 100px; border-color: #333;">
+
         <div id="manualInputSection" style="text-align: left; margin-top: 20px;">
            <div class="manual-header">
                <div>

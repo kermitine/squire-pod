@@ -3,13 +3,18 @@ package webserver
 import (
 	"encoding/json"
 	"fmt"
+	"image"
+	_ "image/jpeg"
+	_ "image/png"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/url"
 	"os"
 	"path"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -78,6 +83,12 @@ func apiHandler(w http.ResponseWriter, r *http.Request) {
 		handleSetProductivityAPI(w, r)
 	case "get_productivity_api":
 		handleGetProductivityAPI(w)
+	case "get_productivity_images":
+		handleGetProductivityImages(w)
+	case "upload_productivity_images":
+		handleUploadProductivityImages(w, r)
+	case "delete_productivity_image":
+		handleDeleteProductivityImage(w, r)
 	case "test_productivity_reminder":
 		handleTestProductivityReminder(w, r)
 	case "test_nba_reminder":
@@ -230,6 +241,11 @@ func handleSetProductivityAPI(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Error parsing form data: "+err.Error(), http.StatusBadRequest)
 		return
 	}
+	defer r.MultipartForm.RemoveAll()
+	if len(r.MultipartForm.File["files"]) > 0 {
+		http.Error(w, "Upload reminder images through the image library before saving settings", http.StatusBadRequest)
+		return
+	}
 
 	provider := strings.ToLower(strings.TrimSpace(r.FormValue("provider")))
 	key := r.FormValue("key")
@@ -251,6 +267,12 @@ func handleSetProductivityAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	if reminders == nil {
 		reminders = []productivity.ManualReminder{}
+	}
+	for _, reminder := range reminders {
+		if reminder.Image != "" && !isSafeProductivityImageName(reminder.Image) {
+			http.Error(w, "Invalid image name in manual reminder configuration", http.StatusBadRequest)
+			return
+		}
 	}
 	canonicalConfig, err := json.Marshal(reminders)
 	if err != nil {
@@ -318,36 +340,6 @@ func handleSetProductivityAPI(w http.ResponseWriter, r *http.Request) {
 	vars.APIConfig.Productivity.NBA = nbaConfig
 	vars.APIConfig.Productivity.F1 = f1Config
 
-	files := r.MultipartForm.File["files"]
-	if len(files) > 0 {
-		if _, err := os.Stat(ProductivityImgPath); os.IsNotExist(err) {
-			os.MkdirAll(ProductivityImgPath, 0755)
-		}
-
-		for _, fileHeader := range files {
-			file, err := fileHeader.Open()
-			if err != nil {
-				logger.Println("Error opening uploaded file:", err)
-				continue
-			}
-			defer file.Close()
-
-			filename := filepath.Base(fileHeader.Filename)
-			dstPath := filepath.Join(ProductivityImgPath, filename)
-
-			dst, err := os.Create(dstPath)
-			if err != nil {
-				logger.Println("Error creating destination file:", err)
-				continue
-			}
-			defer dst.Close()
-
-			if _, err := io.Copy(dst, file); err != nil {
-				logger.Println("Error saving file:", err)
-			}
-		}
-	}
-
 	if err := vars.WriteConfigToDiskWithError(); err != nil {
 		vars.APIConfig.Productivity = previousConfig
 		logger.Println("Failed to persist productivity settings: " + err.Error())
@@ -363,12 +355,259 @@ func handleGetProductivityAPI(w http.ResponseWriter) {
 	json.NewEncoder(w).Encode(vars.APIConfig.Productivity)
 }
 
+const maxProductivityImageSize = 10 << 20
+
+type productivityImageInfo struct {
+	Name     string   `json:"name"`
+	Size     int64    `json:"size"`
+	Modified int64    `json:"modified"`
+	UsedBy   []string `json:"used_by"`
+}
+
+func configuredProductivityImageUsage() (map[string][]string, error) {
+	usage := make(map[string][]string)
+	if strings.TrimSpace(vars.APIConfig.Productivity.ManualConfig) == "" {
+		return usage, nil
+	}
+	var reminders []productivity.ManualReminder
+	if err := json.Unmarshal([]byte(vars.APIConfig.Productivity.ManualConfig), &reminders); err != nil {
+		return nil, err
+	}
+	for _, reminder := range reminders {
+		if reminder.Image != "" {
+			usage[reminder.Image] = append(usage[reminder.Image], reminder.ID)
+		}
+	}
+	return usage, nil
+}
+
+func isSupportedProductivityImage(name string) bool {
+	ext := strings.ToLower(filepath.Ext(name))
+	return ext == ".png" || ext == ".jpg" || ext == ".jpeg"
+}
+
+func isSafeProductivityImageName(name string) bool {
+	return name != "" && name != "." && filepath.Base(name) == name && isSupportedProductivityImage(name)
+}
+
+func productivityImageInfos() ([]productivityImageInfo, error) {
+	if err := os.MkdirAll(ProductivityImgPath, 0755); err != nil {
+		return nil, err
+	}
+	entries, err := os.ReadDir(ProductivityImgPath)
+	if err != nil {
+		return nil, err
+	}
+	usage, err := configuredProductivityImageUsage()
+	if err != nil {
+		return nil, fmt.Errorf("read reminder image usage: %w", err)
+	}
+	images := make([]productivityImageInfo, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() || !isSupportedProductivityImage(entry.Name()) {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return nil, err
+		}
+		usedBy := usage[entry.Name()]
+		if usedBy == nil {
+			usedBy = []string{}
+		}
+		images = append(images, productivityImageInfo{
+			Name:     entry.Name(),
+			Size:     info.Size(),
+			Modified: info.ModTime().UnixNano(),
+			UsedBy:   usedBy,
+		})
+	}
+	sort.Slice(images, func(i, j int) bool {
+		return strings.ToLower(images[i].Name) < strings.ToLower(images[j].Name)
+	})
+	return images, nil
+}
+
+func handleGetProductivityImages(w http.ResponseWriter) {
+	images, err := productivityImageInfos()
+	if err != nil {
+		http.Error(w, "Unable to read productivity image library", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(images)
+}
+
+func cleanProductivityImageFilename(name string) string {
+	ext := strings.ToLower(filepath.Ext(filepath.Base(name)))
+	stem := strings.TrimSuffix(filepath.Base(name), filepath.Ext(filepath.Base(name)))
+	var cleaned strings.Builder
+	lastDash := false
+	for _, char := range stem {
+		allowed := char >= 'a' && char <= 'z' || char >= 'A' && char <= 'Z' || char >= '0' && char <= '9' || char == '_' || char == '-'
+		if allowed {
+			cleaned.WriteRune(char)
+			lastDash = false
+		} else if !lastDash {
+			cleaned.WriteByte('-')
+			lastDash = true
+		}
+	}
+	stem = strings.Trim(cleaned.String(), "-_")
+	if stem == "" {
+		stem = "image"
+	}
+	return stem + ext
+}
+
+func nextAvailableProductivityImageName(name string) (string, error) {
+	if err := os.MkdirAll(ProductivityImgPath, 0755); err != nil {
+		return "", err
+	}
+	ext := filepath.Ext(name)
+	stem := strings.TrimSuffix(name, ext)
+	for suffix := 1; ; suffix++ {
+		candidate := name
+		if suffix > 1 {
+			candidate = fmt.Sprintf("%s-%d%s", stem, suffix, ext)
+		}
+		_, err := os.Stat(filepath.Join(ProductivityImgPath, candidate))
+		if os.IsNotExist(err) {
+			return candidate, nil
+		}
+		if err != nil {
+			return "", err
+		}
+	}
+}
+
+func saveProductivityImage(fileHeader *multipart.FileHeader) (productivityImageInfo, error) {
+	if fileHeader.Size > maxProductivityImageSize {
+		return productivityImageInfo{}, fmt.Errorf("%s exceeds the 10 MB limit", fileHeader.Filename)
+	}
+	if !isSupportedProductivityImage(fileHeader.Filename) {
+		return productivityImageInfo{}, fmt.Errorf("%s must be a PNG or JPEG image", fileHeader.Filename)
+	}
+	file, err := fileHeader.Open()
+	if err != nil {
+		return productivityImageInfo{}, err
+	}
+	defer file.Close()
+	_, format, err := image.DecodeConfig(file)
+	if err != nil {
+		return productivityImageInfo{}, fmt.Errorf("%s is not a valid image", fileHeader.Filename)
+	}
+	ext := strings.ToLower(filepath.Ext(fileHeader.Filename))
+	if format == "png" && ext != ".png" || format == "jpeg" && ext != ".jpg" && ext != ".jpeg" {
+		return productivityImageInfo{}, fmt.Errorf("%s extension does not match its image format", fileHeader.Filename)
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return productivityImageInfo{}, err
+	}
+	name, err := nextAvailableProductivityImageName(cleanProductivityImageFilename(fileHeader.Filename))
+	if err != nil {
+		return productivityImageInfo{}, err
+	}
+	destination, err := os.OpenFile(filepath.Join(ProductivityImgPath, name), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
+	if err != nil {
+		return productivityImageInfo{}, err
+	}
+	written, copyErr := io.Copy(destination, io.LimitReader(file, maxProductivityImageSize+1))
+	closeErr := destination.Close()
+	if copyErr != nil || closeErr != nil || written > maxProductivityImageSize {
+		os.Remove(filepath.Join(ProductivityImgPath, name))
+		if copyErr != nil {
+			return productivityImageInfo{}, copyErr
+		}
+		if written > maxProductivityImageSize {
+			return productivityImageInfo{}, fmt.Errorf("%s exceeds the 10 MB limit", fileHeader.Filename)
+		}
+		return productivityImageInfo{}, closeErr
+	}
+	info, err := os.Stat(filepath.Join(ProductivityImgPath, name))
+	if err != nil {
+		os.Remove(filepath.Join(ProductivityImgPath, name))
+		return productivityImageInfo{}, err
+	}
+	return productivityImageInfo{Name: name, Size: written, Modified: info.ModTime().UnixNano(), UsedBy: []string{}}, nil
+}
+
+func handleUploadProductivityImages(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 50<<20)
+	if err := r.ParseMultipartForm(50 << 20); err != nil {
+		http.Error(w, "Unable to read image upload: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	defer r.MultipartForm.RemoveAll()
+	files := r.MultipartForm.File["files"]
+	if len(files) == 0 {
+		http.Error(w, "Choose at least one PNG or JPEG image", http.StatusBadRequest)
+		return
+	}
+	uploaded := make([]productivityImageInfo, 0, len(files))
+	for _, fileHeader := range files {
+		imageInfo, err := saveProductivityImage(fileHeader)
+		if err != nil {
+			for _, saved := range uploaded {
+				os.Remove(filepath.Join(ProductivityImgPath, saved.Name))
+			}
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		uploaded = append(uploaded, imageInfo)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(uploaded)
+}
+
+func handleDeleteProductivityImage(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var request struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil || !isSafeProductivityImageName(request.Name) {
+		http.Error(w, "Invalid image name", http.StatusBadRequest)
+		return
+	}
+	usage, err := configuredProductivityImageUsage()
+	if err != nil {
+		http.Error(w, "Unable to verify whether the image is in use", http.StatusInternalServerError)
+		return
+	}
+	if usedBy := usage[request.Name]; len(usedBy) > 0 {
+		http.Error(w, "Image is used by reminder(s): "+strings.Join(usedBy, ", ")+". Remove it from those reminders and save first.", http.StatusConflict)
+		return
+	}
+	if err := os.Remove(filepath.Join(ProductivityImgPath, request.Name)); err != nil {
+		if os.IsNotExist(err) {
+			http.Error(w, "Image not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "Unable to delete image", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func handleTestProductivityReminder(w http.ResponseWriter, r *http.Request) {
 	logger.Println("Received request for /api/test_productivity_reminder")
 	err := r.ParseMultipartForm(10 << 20)
 	if err != nil {
 		logger.Println("Error parsing test form data: " + err.Error())
 		http.Error(w, "Error parsing form data: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	defer r.MultipartForm.RemoveAll()
+	if len(r.MultipartForm.File["files"]) > 0 {
+		http.Error(w, "Upload reminder images through the image library before testing", http.StatusBadRequest)
 		return
 	}
 
@@ -385,32 +624,12 @@ func handleTestProductivityReminder(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid reminder config", http.StatusBadRequest)
 		return
 	}
+	if reminder.Image != "" && !isSafeProductivityImageName(reminder.Image) {
+		http.Error(w, "Invalid reminder image name", http.StatusBadRequest)
+		return
+	}
 
-	files := r.MultipartForm.File["files"]
-	if len(files) > 0 {
-		logger.Println("Test Request contains image file(s)")
-		if _, err := os.Stat(ProductivityImgPath); os.IsNotExist(err) {
-			os.MkdirAll(ProductivityImgPath, 0755)
-		}
-		for _, fileHeader := range files {
-			file, err := fileHeader.Open()
-			if err != nil {
-				logger.Println("Error opening test image: " + err.Error())
-				continue
-			}
-			defer file.Close()
-			filename := filepath.Base(fileHeader.Filename)
-			dstPath := filepath.Join(ProductivityImgPath, filename)
-			dst, err := os.Create(dstPath)
-			if err != nil {
-				logger.Println("Error creating test image file: " + err.Error())
-				continue
-			}
-			defer dst.Close()
-			io.Copy(dst, file)
-			logger.Println("Saved test image: " + dstPath)
-		}
-	} else if reminder.Image != "" {
+	if reminder.Image != "" {
 		logger.Println("Test Request uses existing image: " + reminder.Image)
 	}
 

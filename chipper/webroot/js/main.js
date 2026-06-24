@@ -4,9 +4,10 @@ const intentsJson = JSON.parse(
 
 var GetLog = false;
 let reminderCounter = 0; 
+let productivityImageLibrary = [];
 
 // VERSION REMINDER: Increment this for every repository change (V1, V2, ...).
-const ROCKET_POD_VERSION = "V30";
+const ROCKET_POD_VERSION = "V32";
 
 const nbaTeams = [
   ["ATL", "Atlanta Hawks"], ["BOS", "Boston Celtics"], ["BKN", "Brooklyn Nets"],
@@ -303,6 +304,206 @@ function checkProductivity() {
   getE("productivityKeySpan").style.display = isTodoist ? "block" : "none";
 }
 
+function productivityImageURL(name, modified = "") {
+  const version = modified ? `?v=${encodeURIComponent(modified)}` : "";
+  return `/api/productivity-images/${encodeURIComponent(name)}${version}`;
+}
+
+function formatProductivityImageSize(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function setProductivityImageLibraryStatus(message, isError = false) {
+  const status = getE("productivityImageLibraryStatus");
+  if (!status) return;
+  status.textContent = message;
+  status.classList.toggle("error", isError);
+}
+
+function updateReminderImagePreview(select) {
+  const picker = select.closest(".reminder-image-picker");
+  const preview = picker ? picker.querySelector(".reminder-image-preview") : null;
+  if (!preview) return;
+  preview.innerHTML = "";
+  if (!select.value) return;
+
+  const image = productivityImageLibrary.find(item => item.name === select.value);
+  if (!image) {
+    const missing = document.createElement("small");
+    missing.className = "productivity-image-missing";
+    missing.textContent = `Missing from library: ${select.value}`;
+    preview.appendChild(missing);
+    return;
+  }
+
+  const thumbnail = document.createElement("img");
+  thumbnail.src = productivityImageURL(image.name, image.modified);
+  thumbnail.alt = image.name;
+  const label = document.createElement("small");
+  label.textContent = image.name;
+  preview.append(thumbnail, label);
+}
+
+function populateReminderImageSelect(select, selectedName = select.value) {
+  if (!select) return;
+  select.innerHTML = "";
+  const none = document.createElement("option");
+  none.value = "";
+  none.textContent = "No image";
+  select.appendChild(none);
+
+  productivityImageLibrary.forEach(image => {
+    const option = document.createElement("option");
+    option.value = image.name;
+    option.textContent = image.name;
+    select.appendChild(option);
+  });
+
+  if (selectedName && !productivityImageLibrary.some(image => image.name === selectedName)) {
+    const missing = document.createElement("option");
+    missing.value = selectedName;
+    missing.textContent = `${selectedName} (missing)`;
+    select.appendChild(missing);
+  }
+  select.value = selectedName || "";
+  updateReminderImagePreview(select);
+}
+
+function refreshReminderImageSelects() {
+  document.querySelectorAll(".reminder-image-select").forEach(select => {
+    populateReminderImageSelect(select, select.value);
+  });
+}
+
+function renderProductivityImageLibrary() {
+  const grid = getE("productivityImageLibraryGrid");
+  if (!grid) return;
+  grid.innerHTML = "";
+
+  if (productivityImageLibrary.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "productivity-image-library-empty";
+    empty.textContent = "No reminder images yet.";
+    grid.appendChild(empty);
+    return;
+  }
+
+  productivityImageLibrary.forEach(image => {
+    const card = document.createElement("div");
+    card.className = "productivity-image-card";
+
+    const thumbnail = document.createElement("img");
+    thumbnail.src = productivityImageURL(image.name, image.modified);
+    thumbnail.alt = image.name;
+    thumbnail.loading = "lazy";
+
+    const details = document.createElement("div");
+    details.className = "productivity-image-card-details";
+    const name = document.createElement("strong");
+    name.textContent = image.name;
+    name.title = image.name;
+    const size = document.createElement("small");
+    size.textContent = formatProductivityImageSize(image.size);
+    const usage = document.createElement("small");
+    usage.className = "productivity-image-usage";
+    usage.textContent = image.used_by && image.used_by.length > 0
+      ? `Used by: ${image.used_by.join(", ")}`
+      : "Not currently used";
+    details.append(name, size, usage);
+
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "btn-generic btn-remove productivity-image-delete";
+    const isInUse = image.used_by && image.used_by.length > 0;
+    remove.textContent = isInUse ? "Delete (in use)" : "Delete";
+    if (isInUse) {
+      remove.title = `Used by: ${image.used_by.join(", ")}`;
+    }
+    remove.addEventListener("click", () => deleteProductivityImage(image));
+    card.append(thumbnail, details, remove);
+    grid.appendChild(card);
+  });
+}
+
+function loadProductivityImages() {
+  setProductivityImageLibraryStatus("Loading image library...");
+  return fetch("/api/get_productivity_images")
+    .then(async response => {
+      if (!response.ok) throw new Error(await response.text());
+      return response.json();
+    })
+    .then(images => {
+      productivityImageLibrary = Array.isArray(images) ? images : [];
+      renderProductivityImageLibrary();
+      refreshReminderImageSelects();
+      setProductivityImageLibraryStatus(`${productivityImageLibrary.length} image${productivityImageLibrary.length === 1 ? "" : "s"} available.`);
+      return productivityImageLibrary;
+    })
+    .catch(error => {
+      setProductivityImageLibraryStatus(`Could not load image library: ${error.message}`, true);
+      return [];
+    });
+}
+
+function uploadProductivityImages() {
+  const input = getE("productivityImageUpload");
+  const button = getE("productivityImageUploadBtn");
+  if (!input || input.files.length === 0) {
+    setProductivityImageLibraryStatus("Choose at least one PNG or JPEG image.", true);
+    return;
+  }
+
+  const formData = new FormData();
+  Array.from(input.files).forEach(file => formData.append("files", file));
+  button.disabled = true;
+  setProductivityImageLibraryStatus("Uploading images...");
+  fetch("/api/upload_productivity_images", { method: "POST", body: formData })
+    .then(async response => {
+      if (!response.ok) throw new Error(await response.text());
+      return response.json();
+    })
+    .then(uploaded => {
+      input.value = "";
+      setProductivityImageLibraryStatus(`Uploaded ${uploaded.length} image${uploaded.length === 1 ? "" : "s"}.`);
+      return loadProductivityImages();
+    })
+    .catch(error => setProductivityImageLibraryStatus(`Upload failed: ${error.message}`, true))
+    .finally(() => { button.disabled = false; });
+}
+
+function deleteProductivityImage(image) {
+  if (image.used_by && image.used_by.length > 0) {
+    const warning = `Warning: ${image.name} is still used by ${image.used_by.join(", ")}.\n\nChoose another image (or No image) for those reminders and apply settings before deleting it.`;
+    alert(warning);
+    setProductivityImageLibraryStatus(warning.replace("\n\n", " "), true);
+    return;
+  }
+  if (!confirm(`Delete ${image.name} from the reminder image library?`)) return;
+
+  setProductivityImageLibraryStatus(`Deleting ${image.name}...`);
+  fetch("/api/delete_productivity_image", {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: image.name })
+  })
+    .then(async response => {
+      if (!response.ok) {
+        const message = await response.text();
+        if (response.status === 409) {
+          alert(`Warning: this image is now in use and cannot be deleted.\n\n${message.trim()}`);
+        }
+        throw new Error(message);
+      }
+      document.querySelectorAll(".reminder-image-select").forEach(select => {
+        if (select.value === image.name) select.value = "";
+      });
+      return loadProductivityImages();
+    })
+    .catch(error => setProductivityImageLibraryStatus(`Delete failed: ${error.message}`, true));
+}
+
 function toggleManualReminders() {
    const enabled = getE("enableManualReminders").checked;
    getE("manualRemindersWrapper").style.display = enabled ? "block" : "none";
@@ -468,15 +669,10 @@ function addReminderBlock(data = null) {
             <input type="number" class="tinput reminder-snooze-val" value="${snoozeVal}" min="1" placeholder="10">
 
             <label>Image</label>
-            <div>
-                <input type="hidden" class="reminder-img-existing" value="${reminderImage}">
-                ${reminderImage ? `
-                    <div style="margin-bottom: 8px; display: flex; align-items: center; gap: 15px;">
-                        <img src="/api/productivity-images/${reminderImage}" style="max-width: 80px; border: 1px solid #555; border-radius: 4px;">
-                        <small style="color:gray;">Current: ${reminderImage}</small>
-                    </div>
-                ` : ''}
-                <input type="file" class="reminder-file-input" accept="image/png">
+            <div class="reminder-image-picker">
+                <select class="tinput reminder-image-select" onchange="updateReminderImagePreview(this)"></select>
+                <div class="reminder-image-preview"></div>
+                <small class="desc">Manage available images in the library above.</small>
             </div>
 
             <label>Phrases</label>
@@ -507,6 +703,8 @@ function addReminderBlock(data = null) {
 
   container.appendChild(block);
 
+  populateReminderImageSelect(block.querySelector(".reminder-image-select"), reminderImage);
+
   if (data && data.phrases) {
       data.phrases.forEach(phrase => addPhraseInput(`${id}_phrases`, phrase));
   } else {
@@ -526,19 +724,12 @@ function testReminder(id) {
   }
 
   const reminderName = block.querySelector(".reminder-id-val").value;
-  const existingImage = block.querySelector(".reminder-img-existing").value;
-  const fileInput = block.querySelector(".reminder-file-input");
+  const imageName = block.querySelector(".reminder-image-select").value;
   const requireConfirm = block.querySelector(".reminder-req-confirm").checked;
   const snoozeMinutes = parseInt(block.querySelector(".reminder-snooze-val").value) || 10;
 
   const formData = new FormData();
   formData.append("target_robot", targetBot);
-
-  let imageName = existingImage;
-  if (fileInput.files.length > 0) {
-      imageName = fileInput.files[0].name;
-      formData.append("files", fileInput.files[0]);
-  }
 
   const phrases = [];
   block.querySelectorAll(".phrase-val").forEach(input => {
@@ -658,7 +849,7 @@ function getHoursCheckboxHTML(existingHours = []) {
     return html;
 }
 
-function collectManualConfigData(formDataObj) {
+function collectManualConfigData() {
   const enabled = getE("enableManualReminders").checked;
   if (!enabled) return [];
 
@@ -668,16 +859,9 @@ function collectManualConfigData(formDataObj) {
   blocks.forEach((block, index) => {
     const id = block.querySelector(".reminder-id-val").value;
     const isEnabled = block.querySelector(".reminder-enabled").checked;
-    const existingImage = block.querySelector(".reminder-img-existing").value;
-    const fileInput = block.querySelector(".reminder-file-input");
+    const imageName = block.querySelector(".reminder-image-select").value;
     const requireConfirm = block.querySelector(".reminder-req-confirm").checked;
     const snoozeMinutes = parseInt(block.querySelector(".reminder-snooze-val").value) || 10;
-
-    let imageName = existingImage;
-    if (fileInput.files.length > 0) {
-        imageName = fileInput.files[0].name;
-        formDataObj.append("files", fileInput.files[0]);
-    }
 
     const phrases = [];
     block.querySelectorAll(".phrase-val").forEach(input => {
@@ -734,7 +918,7 @@ function sendProductivityAPIKey() {
   formData.append("key", getE("prodApiKey").value);
   formData.append("timezone", Intl.DateTimeFormat().resolvedOptions().timeZone || "");
   
-  const manualConfigArray = collectManualConfigData(formData);
+  const manualConfigArray = collectManualConfigData();
   formData.append("manual_config", JSON.stringify(manualConfigArray));
   formData.append("nba_config", JSON.stringify(collectNBAConfigData()));
   formData.append("f1_config", JSON.stringify(collectF1ConfigData()));
@@ -745,9 +929,14 @@ function sendProductivityAPIKey() {
     method: "POST",
     body: formData
   })
-    .then((response) => response.text())
-    .then((response) => {
-      displayMessage("addProductivityProviderAPIStatus", response);
+    .then(async response => {
+      const text = await response.text();
+      if (!response.ok) throw new Error(text);
+      return text;
+    })
+    .then((message) => {
+      displayMessage("addProductivityProviderAPIStatus", message);
+      loadProductivityImages();
     })
     .catch((error) => {
       displayMessage("addProductivityProviderAPIStatus", "Error saving settings: " + error);
@@ -756,7 +945,7 @@ function sendProductivityAPIKey() {
 
 function updateProductivityAPI() {
   populateNBATeamSelect();
-  populateRobotList().then(() => {
+  Promise.all([populateRobotList(), loadProductivityImages()]).then(() => {
       fetch("/api/get_productivity_api")
         .then((response) => response.json())
         .then((data) => {
