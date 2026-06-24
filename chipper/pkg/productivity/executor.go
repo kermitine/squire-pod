@@ -649,25 +649,18 @@ func reminderFaceSearchAnimationRequest() *vectorpb.PlayAnimationRequest {
 	}
 }
 
-func playReminderFaceSearchAnimation(ctx context.Context, robot *vector.Vector) <-chan struct{} {
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		for ctx.Err() == nil {
-			response, err := robot.Conn.PlayAnimation(ctx, reminderFaceSearchAnimationRequest())
-			if err != nil {
-				if ctx.Err() == nil {
-					logger.Println("Productivity: Face-search animation failed: " + err.Error())
-				}
-				return
-			}
-			if response == nil || response.GetResult() != vectorpb.BehaviorResults_BEHAVIOR_COMPLETE_STATE {
-				logger.Println("Productivity: Face-search animation did not complete")
-				return
-			}
-		}
-	}()
-	return done
+func playReminderFaceSearchAnimation(ctx context.Context, robot *vector.Vector) error {
+	response, err := robot.Conn.PlayAnimation(ctx, reminderFaceSearchAnimationRequest())
+	if err != nil {
+		return err
+	}
+	if response == nil {
+		return fmt.Errorf("animation returned no response")
+	}
+	if response.GetResult() != vectorpb.BehaviorResults_BEHAVIOR_COMPLETE_STATE {
+		return fmt.Errorf("animation returned %s", response.GetResult().String())
+	}
+	return nil
 }
 
 // Voice intent handling can hold its face track briefly after returning its
@@ -785,7 +778,9 @@ func facePersonForReminder(ctx context.Context, robot *vector.Vector) bool {
 	}
 
 	logger.Println("Productivity: Looking for a person before delivering reminder")
-	faceAnimationDone := playReminderFaceSearchAnimation(searchCtx, robot)
+	if err := playReminderFaceSearchAnimation(searchCtx, robot); err != nil && searchCtx.Err() == nil {
+		logger.Println("Productivity: Face-search animation failed; continuing scan: " + err.Error())
+	}
 
 	// Give face detection a moment before beginning the scan. Each turn is a
 	// small, completed action, so observing a face prevents any further turns.
@@ -836,7 +831,6 @@ scanLoop:
 		}
 	}
 	cancel()
-	<-faceAnimationDone
 
 	faceID, faceObserved := observations.face()
 	if !faceObserved {
