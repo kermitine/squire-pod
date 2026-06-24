@@ -40,6 +40,10 @@
               name="icon"></i><br />Productivity</a>
         </div>
         <div class="main-nav-child">
+          <a href="#" onclick="showSports(); return false;"><i class="fa-solid fa-trophy" id="icon-Sports"
+              name="icon"></i><br />Sports</a>
+        </div>
+        <div class="main-nav-child">
           <a href="#" onclick="showLanguage(); return false;"><i class="fa-solid fa-language" id="icon-Language"
               name="icon"></i><br />Set Language</a>
         </div>
@@ -268,6 +272,19 @@
               <div id="manualRemindersContainer">
               </div>
            </div>
+        </div>
+
+        <hr />
+      </div>
+
+      <div id="section-sports" style="display: none">
+        <h3>Sports Updates</h3>
+        <p>Configure automatic game, race, and standings updates. Sports updates use the target robot selected in Productivity.</p>
+        <div class="sports-actions">
+          <button type="button" onclick="sendSportsSettings()" class="btn-outline-green">
+            Apply Sports Settings
+          </button>
+          <div id="sportsSettingsStatus" style="font-size:0.9em; min-height:20px;"></div>
         </div>
 
 		<hr class="small-hr" style="width: 100px; border-color: #333;">

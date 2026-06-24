@@ -7,7 +7,7 @@ let reminderCounter = 0;
 let productivityImageLibrary = [];
 
 // VERSION REMINDER: Increment this for every repository change (V1, V2, ...).
-const ROCKET_POD_VERSION = "V36";
+const ROCKET_POD_VERSION = "V37";
 
 const nbaTeams = [
   ["ATL", "Atlanta Hawks"], ["BOS", "Boston Celtics"], ["BKN", "Brooklyn Nets"],
@@ -541,7 +541,7 @@ function collectNBAConfigData() {
 function testNBAReminder() {
   const formData = new FormData();
   formData.append("target_robot", getE("targetBot").value);
-  displayMessage("addProductivityProviderAPIStatus", "Generating random NBA update...");
+  displayMessage("sportsSettingsStatus", "Generating random NBA update...");
 
   fetch("/api/test_nba_reminder", {
     method: "POST",
@@ -552,14 +552,14 @@ function testNBAReminder() {
       if (!response.ok) throw new Error(text);
       return text;
     })
-    .then(text => displayMessage("addProductivityProviderAPIStatus", text))
-    .catch(error => displayMessage("addProductivityProviderAPIStatus", "NBA test failed: " + error.message));
+    .then(text => displayMessage("sportsSettingsStatus", text))
+    .catch(error => displayMessage("sportsSettingsStatus", "NBA test failed: " + error.message));
 }
 
 function testNBAFinalReminder() {
   const formData = new FormData();
   formData.append("target_robot", getE("targetBot").value);
-  displayMessage("addProductivityProviderAPIStatus", "Generating random NBA final score...");
+  displayMessage("sportsSettingsStatus", "Generating random NBA final score...");
 
   fetch("/api/test_nba_final_reminder", {
     method: "POST",
@@ -570,8 +570,8 @@ function testNBAFinalReminder() {
       if (!response.ok) throw new Error(text);
       return text;
     })
-    .then(text => displayMessage("addProductivityProviderAPIStatus", text))
-    .catch(error => displayMessage("addProductivityProviderAPIStatus", "NBA final test failed: " + error.message));
+    .then(text => displayMessage("sportsSettingsStatus", text))
+    .catch(error => displayMessage("sportsSettingsStatus", "NBA final test failed: " + error.message));
 }
 
 function toggleF1Settings() {
@@ -593,43 +593,43 @@ function collectF1ConfigData() {
 function testF1LiveRaceReminder() {
   const formData = new FormData();
   formData.append("target_robot", getE("targetBot").value);
-  displayMessage("addProductivityProviderAPIStatus", "Generating live F1 race update...");
+  displayMessage("sportsSettingsStatus", "Generating live F1 race update...");
   fetch("/api/test_f1_reminder", { method: "POST", body: formData })
     .then(async response => {
       const text = await response.text();
       if (!response.ok) throw new Error(text);
       return text;
     })
-    .then(text => displayMessage("addProductivityProviderAPIStatus", text))
-    .catch(error => displayMessage("addProductivityProviderAPIStatus", "Live F1 race test failed: " + error.message));
+    .then(text => displayMessage("sportsSettingsStatus", text))
+    .catch(error => displayMessage("sportsSettingsStatus", "Live F1 race test failed: " + error.message));
 }
 
 function testF1LiveQualifyingReminder() {
   const formData = new FormData();
   formData.append("target_robot", getE("targetBot").value);
-  displayMessage("addProductivityProviderAPIStatus", "Generating live F1 qualifying update...");
+  displayMessage("sportsSettingsStatus", "Generating live F1 qualifying update...");
   fetch("/api/test_f1_live_qualifying_reminder", { method: "POST", body: formData })
     .then(async response => {
       const text = await response.text();
       if (!response.ok) throw new Error(text);
       return text;
     })
-    .then(text => displayMessage("addProductivityProviderAPIStatus", text))
-    .catch(error => displayMessage("addProductivityProviderAPIStatus", "Live F1 qualifying test failed: " + error.message));
+    .then(text => displayMessage("sportsSettingsStatus", text))
+    .catch(error => displayMessage("sportsSettingsStatus", "Live F1 qualifying test failed: " + error.message));
 }
 
 function testF1QualifyingReminder() {
   const formData = new FormData();
   formData.append("target_robot", getE("targetBot").value);
-  displayMessage("addProductivityProviderAPIStatus", "Generating F1 qualifying result...");
+  displayMessage("sportsSettingsStatus", "Generating F1 qualifying result...");
   fetch("/api/test_f1_qualifying_reminder", { method: "POST", body: formData })
     .then(async response => {
       const text = await response.text();
       if (!response.ok) throw new Error(text);
       return text;
     })
-    .then(text => displayMessage("addProductivityProviderAPIStatus", text))
-    .catch(error => displayMessage("addProductivityProviderAPIStatus", "F1 qualifying test failed: " + error.message));
+    .then(text => displayMessage("sportsSettingsStatus", text))
+    .catch(error => displayMessage("sportsSettingsStatus", "F1 qualifying test failed: " + error.message));
 }
 
 function toggleAccordion(id) {
@@ -936,7 +936,7 @@ function collectManualConfigData() {
   return config;
 }
 
-function sendProductivityAPIKey() {
+function sendProductivityAPIKey(statusElementId = "addProductivityProviderAPIStatus") {
   const isTodoist = getE("todoistEnable").checked;
   const provider = isTodoist ? "todoist" : "none";
   
@@ -951,7 +951,7 @@ function sendProductivityAPIKey() {
   formData.append("nba_config", JSON.stringify(collectNBAConfigData()));
   formData.append("f1_config", JSON.stringify(collectF1ConfigData()));
 
-  displayMessage("addProductivityProviderAPIStatus", "Saving...");
+  displayMessage(statusElementId, "Saving...");
 
   fetch("/api/set_productivity_api", {
     method: "POST",
@@ -963,12 +963,17 @@ function sendProductivityAPIKey() {
       return text;
     })
     .then((message) => {
-      displayMessage("addProductivityProviderAPIStatus", message);
+      const successMessage = statusElementId === "sportsSettingsStatus" ? "Sports settings applied." : message;
+      displayMessage(statusElementId, successMessage);
       loadProductivityImages();
     })
     .catch((error) => {
-      displayMessage("addProductivityProviderAPIStatus", "Error saving settings: " + error);
+      displayMessage(statusElementId, "Error saving settings: " + error);
     });
+}
+
+function sendSportsSettings() {
+  sendProductivityAPIKey("sportsSettingsStatus");
 }
 
 function updateProductivityAPI() {
@@ -1360,7 +1365,7 @@ function checkUpdate() {
 }
 
 function showLanguage() {
-  toggleVisibility(["section-weather", "section-restart", "section-kg", "section-productivity", "section-language"], "section-language", "icon-Language");
+  toggleVisibility(["section-weather", "section-restart", "section-kg", "section-productivity", "section-sports", "section-language"], "section-language", "icon-Language");
   fetch("/api/get_stt_info")
     .then((response) => response.json())
     .then((parsed) => {
@@ -1384,15 +1389,19 @@ function showIntents() {
 }
 
 function showWeather() {
-  toggleVisibility(["section-weather", "section-restart", "section-language", "section-productivity", "section-kg"], "section-weather", "icon-Weather");
+  toggleVisibility(["section-weather", "section-restart", "section-language", "section-productivity", "section-sports", "section-kg"], "section-weather", "icon-Weather");
 }
 
 function showProductivity() {
-  toggleVisibility(["section-weather", "section-restart", "section-language", "section-kg", "section-productivity"], "section-productivity", "icon-Productivity");
+  toggleVisibility(["section-weather", "section-restart", "section-language", "section-kg", "section-sports", "section-productivity"], "section-productivity", "icon-Productivity");
+}
+
+function showSports() {
+  toggleVisibility(["section-weather", "section-restart", "section-language", "section-kg", "section-productivity", "section-sports"], "section-sports", "icon-Sports");
 }
 
 function showKG() {
-  toggleVisibility(["section-weather", "section-restart", "section-language", "section-productivity", "section-kg"], "section-kg", "icon-KG");
+  toggleVisibility(["section-weather", "section-restart", "section-language", "section-productivity", "section-sports", "section-kg"], "section-kg", "icon-KG");
 }
 
 function toggleVisibility(sections, sectionToShow, iconId) {

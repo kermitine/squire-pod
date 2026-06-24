@@ -747,6 +747,7 @@ input[type="radio"]:disabled {
 #section-weather,
 #section-kg,
 #section-productivity,
+#section-sports,
 #section-restart,
 #section-language,
 .toggleable-section,
@@ -807,6 +808,15 @@ canvas {
 
 .prod-select {
   width: 100%;
+}
+
+.sports-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin: 18px 0 22px;
 }
 
 .manual-header {
