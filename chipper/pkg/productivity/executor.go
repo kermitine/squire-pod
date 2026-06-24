@@ -383,7 +383,7 @@ func processTask(task Task) {
 	if !taskCanRun(task) {
 		return
 	}
-	if !facePersonForReminder(ctx, robot) {
+	if !facePersonForReminder(ctx, robot, task.RobotESN) {
 		logger.Println("Productivity: Reminder presentation canceled because wheel stop could not be confirmed")
 		return
 	}
@@ -754,7 +754,7 @@ func (o *faceSearchObservations) face() (int32, bool) {
 // Scan in small, completed turns until the event stream reports a tracked face,
 // explicitly face it, and make one short, cliff-monitored approach. Presentation
 // is gated on positive confirmation that both wheels have stopped.
-func facePersonForReminder(ctx context.Context, robot *vector.Vector) bool {
+func facePersonForReminder(ctx context.Context, robot *vector.Vector, esn string) bool {
 	positionReminderHeadForViewing(ctx, robot, "before face scan")
 	defer positionReminderHeadForViewing(ctx, robot, "before reminder display")
 
@@ -791,6 +791,11 @@ func facePersonForReminder(ctx context.Context, robot *vector.Vector) bool {
 	logger.Println("Productivity: Looking for a person before delivering reminder")
 	if err := playReminderFaceSearchAnimation(searchCtx, robot); err != nil && searchCtx.Err() == nil {
 		logger.Println("Productivity: Face-search animation failed; continuing scan: " + err.Error())
+	}
+	if ip := robotIPForESN(esn); ip != "" {
+		if err := stopReminderAnimationAudio(searchCtx, ip); err != nil && searchCtx.Err() == nil {
+			logger.Println("Productivity: Could not stop face-search audio: " + err.Error())
+		}
 	}
 
 	// Give face detection a moment before beginning the scan. Each turn is a
@@ -1117,13 +1122,7 @@ func waitForConfirmation(ctx context.Context, robot *vector.Vector, esn string) 
 	case <-releaseDelay.C:
 	}
 
-	var ip string
-	for _, bot := range vars.BotInfo.Robots {
-		if bot.Esn == esn {
-			ip = bot.IPAddress
-			break
-		}
-	}
+	ip := robotIPForESN(esn)
 
 	eventStream, err := robot.Conn.EventStream(confirmationCtx, &vectorpb.EventRequest{})
 	if err != nil {
@@ -1242,6 +1241,33 @@ func (s *confirmationListeningSession) queueRetry(reason string) bool {
 
 func triggerConfirmationListening(ctx context.Context, ip string) error {
 	url := fmt.Sprintf("http://%s:8889/consolevarset?key=FakeButtonPressType&value=singlePressDetected", ip)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return err
+	}
+	client := &http.Client{Timeout: 2 * time.Second}
+	response, err := client.Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		return fmt.Errorf("robot console returned %s", response.Status)
+	}
+	return nil
+}
+
+func robotIPForESN(esn string) string {
+	for _, bot := range vars.BotInfo.Robots {
+		if bot.Esn == esn {
+			return bot.IPAddress
+		}
+	}
+	return ""
+}
+
+func stopReminderAnimationAudio(ctx context.Context, ip string) error {
+	url := fmt.Sprintf("http://%s:8889/consolefunccall?func=StopAllAudioEvents", ip)
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return err

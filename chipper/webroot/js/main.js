@@ -6,7 +6,7 @@ var GetLog = false;
 let reminderCounter = 0; 
 
 // VERSION REMINDER: Increment this for every repository change (V1, V2, ...).
-const ROCKET_POD_VERSION = "V25";
+const ROCKET_POD_VERSION = "V26";
 
 const nbaTeams = [
   ["ATL", "Atlanta Hawks"], ["BOS", "Boston Celtics"], ["BKN", "Brooklyn Nets"],
