@@ -99,6 +99,8 @@ func apiHandler(w http.ResponseWriter, r *http.Request) {
 		handleTestF1Reminder(w, r)
 	case "test_f1_qualifying_reminder":
 		handleTestF1QualifyingReminder(w, r)
+	case "test_f1_live_qualifying_reminder":
+		handleTestF1LiveQualifyingReminder(w, r)
 	case "is_api_v3":
 		fmt.Fprintf(w, "it is!")
 	default:
@@ -676,7 +678,7 @@ func handleTestF1Reminder(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Unable to queue F1 test update: "+err.Error(), http.StatusServiceUnavailable)
 		return
 	}
-	fmt.Fprint(w, "F1 top-ten leaderboard queued.")
+	fmt.Fprint(w, "Live F1 race update queued.")
 }
 
 func handleTestF1QualifyingReminder(w http.ResponseWriter, r *http.Request) {
@@ -687,6 +689,16 @@ func handleTestF1QualifyingReminder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	fmt.Fprint(w, "F1 qualifying result queued.")
+}
+
+func handleTestF1LiveQualifyingReminder(w http.ResponseWriter, r *http.Request) {
+	targetRobot := strings.TrimSpace(r.FormValue("target_robot"))
+	if err := productivity.InjectTestF1LiveQualifyingUpdate(targetRobot); err != nil {
+		logger.Println("Unable to queue live F1 qualifying test: " + err.Error())
+		http.Error(w, "Unable to queue live F1 qualifying test: "+err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+	fmt.Fprint(w, "Live F1 qualifying update queued.")
 }
 
 func validClockTime(value string) bool {

@@ -132,14 +132,18 @@ func resetF1NotificationState() {
 }
 
 func InjectTestF1Update(robotESN string) error {
-	return injectTestF1Leaderboard(robotESN, false)
+	return injectTestF1Leaderboard(robotESN, false, "live")
 }
 
 func InjectTestF1QualifyingUpdate(robotESN string) error {
-	return injectTestF1Leaderboard(robotESN, true)
+	return injectTestF1Leaderboard(robotESN, true, "final")
 }
 
-func injectTestF1Leaderboard(robotESN string, qualifying bool) error {
+func InjectTestF1LiveQualifyingUpdate(robotESN string) error {
+	return injectTestF1Leaderboard(robotESN, true, "live")
+}
+
+func injectTestF1Leaderboard(robotESN string, qualifying bool, kind string) error {
 	if robotESN == "" || robotESN == "None" {
 		robotESN = productivityTargetRobot()
 	}
@@ -147,12 +151,15 @@ func injectTestF1Leaderboard(robotESN string, qualifying bool) error {
 		return fmt.Errorf("no target robot is configured")
 	}
 	event, race := syntheticF1Race()
-	kind := "live"
-	logName := "top-ten"
+	logName := "live-race"
 	if qualifying {
-		event, race = syntheticF1Qualifying()
-		kind = "final"
-		logName = "qualifying"
+		if kind == "final" {
+			event, race = syntheticF1Qualifying()
+			logName = "qualifying-final"
+		} else {
+			event, race = syntheticF1LiveQualifying()
+			logName = "live-qualifying"
+		}
 	}
 	pages, err := f1LeaderboardTaskPages(event, race, kind)
 	if err != nil {
@@ -191,11 +198,17 @@ func syntheticF1Race() (f1Event, f1Competition) {
 }
 
 func syntheticF1Qualifying() (f1Event, f1Competition) {
+	event, qualifying := syntheticF1LiveQualifying()
+	qualifying.Status.Type.State = "post"
+	qualifying.Status.Type.ShortDetail = "Final"
+	return event, qualifying
+}
+
+func syntheticF1LiveQualifying() (f1Event, f1Competition) {
 	event, qualifying := syntheticF1Race()
 	qualifying.ID = "f1-test-qualifying"
 	qualifying.Type.Abbreviation = "Qual"
-	qualifying.Status.Type.State = "post"
-	qualifying.Status.Type.ShortDetail = "Final"
+	qualifying.Status.Type.ShortDetail = "Q3 - 4:12"
 	return event, qualifying
 }
 
@@ -465,10 +478,9 @@ func f1LeaderboardSpeech(event f1Event, race f1Competition, drivers []f1Competit
 	}
 	if offset == 0 {
 		prefix += " from " + f1TrackName(event) + ". The top ten are"
-	} else {
-		prefix = "Continuing the top ten"
+		return prefix + ". " + strings.Join(parts, ". ") + "."
 	}
-	return prefix + ". " + strings.Join(parts, ". ") + "."
+	return strings.Join(parts, ". ") + "."
 }
 
 func f1PregameSpeech(event f1Event, race f1Competition, now time.Time) string {

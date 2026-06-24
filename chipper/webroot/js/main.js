@@ -7,7 +7,7 @@ let reminderCounter = 0;
 let productivityImageLibrary = [];
 
 // VERSION REMINDER: Increment this for every repository change (V1, V2, ...).
-const ROCKET_POD_VERSION = "V33";
+const ROCKET_POD_VERSION = "V34";
 
 const nbaTeams = [
   ["ATL", "Atlanta Hawks"], ["BOS", "Boston Celtics"], ["BKN", "Brooklyn Nets"],
@@ -590,10 +590,10 @@ function collectF1ConfigData() {
   };
 }
 
-function testF1Reminder() {
+function testF1LiveRaceReminder() {
   const formData = new FormData();
   formData.append("target_robot", getE("targetBot").value);
-  displayMessage("addProductivityProviderAPIStatus", "Generating F1 top-ten leaderboard...");
+  displayMessage("addProductivityProviderAPIStatus", "Generating live F1 race update...");
   fetch("/api/test_f1_reminder", { method: "POST", body: formData })
     .then(async response => {
       const text = await response.text();
@@ -601,7 +601,21 @@ function testF1Reminder() {
       return text;
     })
     .then(text => displayMessage("addProductivityProviderAPIStatus", text))
-    .catch(error => displayMessage("addProductivityProviderAPIStatus", "F1 test failed: " + error.message));
+    .catch(error => displayMessage("addProductivityProviderAPIStatus", "Live F1 race test failed: " + error.message));
+}
+
+function testF1LiveQualifyingReminder() {
+  const formData = new FormData();
+  formData.append("target_robot", getE("targetBot").value);
+  displayMessage("addProductivityProviderAPIStatus", "Generating live F1 qualifying update...");
+  fetch("/api/test_f1_live_qualifying_reminder", { method: "POST", body: formData })
+    .then(async response => {
+      const text = await response.text();
+      if (!response.ok) throw new Error(text);
+      return text;
+    })
+    .then(text => displayMessage("addProductivityProviderAPIStatus", text))
+    .catch(error => displayMessage("addProductivityProviderAPIStatus", "Live F1 qualifying test failed: " + error.message));
 }
 
 function testF1QualifyingReminder() {

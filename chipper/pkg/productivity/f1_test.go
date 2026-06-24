@@ -94,6 +94,9 @@ func TestF1LeaderboardPagesShowAndSpeakTopTen(t *testing.T) {
 	if len(pages) != 2 || len(pages[0].FaceData) == 0 || len(pages[1].FaceData) == 0 {
 		t.Fatalf("leaderboard pages = %#v", pages)
 	}
+	if strings.Contains(pages[1].Speech, "Continuing") || !strings.HasPrefix(pages[1].Speech, "sixth,") {
+		t.Fatalf("second-page speech = %q", pages[1].Speech)
+	}
 	speech := pages[0].Speech + " " + pages[1].Speech
 	for _, lastName := range []string{"Norris", "Verstappen", "Leclerc", "Russell", "Piastri", "Hamilton", "Sainz", "Alonso", "Albon", "Bearman"} {
 		if !strings.Contains(speech, lastName) {
@@ -133,6 +136,20 @@ func TestSyntheticF1QualifyingLeaderboard(t *testing.T) {
 	}
 	if len(pages) != 2 || !strings.Contains(pages[0].Speech, "Final F1 qualifying result") {
 		t.Fatalf("qualifying test pages = %#v", pages)
+	}
+}
+
+func TestSyntheticF1LiveQualifyingLeaderboard(t *testing.T) {
+	event, session := syntheticF1LiveQualifying()
+	if !f1IsQualifying(session) || session.Status.Type.State != "in" || session.Status.Type.ShortDetail != "Q3 - 4:12" {
+		t.Fatalf("syntheticF1LiveQualifying() session = %#v", session)
+	}
+	pages, err := f1LeaderboardTaskPages(event, session, "live")
+	if err != nil {
+		t.Fatalf("f1LeaderboardTaskPages() error = %v", err)
+	}
+	if len(pages) != 2 || !strings.Contains(pages[0].Speech, "F1 qualifying update") {
+		t.Fatalf("live qualifying test pages = %#v", pages)
 	}
 }
 
