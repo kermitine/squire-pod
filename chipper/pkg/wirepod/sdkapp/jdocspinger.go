@@ -184,17 +184,45 @@ func connCheck(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-var MDNSAlreadyRun []string
+const mdnsDiscoveryCooldown = 30 * time.Second
 
-var RunningMDNS bool
+var mdnsDiscoveryState struct {
+	sync.Mutex
+	running      bool
+	lastFinished time.Time
+}
 
-func RunMDNS(botIP string) {
-	for _, ip := range MDNSAlreadyRun {
-		if ip == botIP {
-			return
-		}
+func beginMDNSDiscovery(now time.Time) bool {
+	mdnsDiscoveryState.Lock()
+	defer mdnsDiscoveryState.Unlock()
+	if mdnsDiscoveryState.running || (!mdnsDiscoveryState.lastFinished.IsZero() && now.Sub(mdnsDiscoveryState.lastFinished) < mdnsDiscoveryCooldown) {
+		return false
 	}
-	fmt.Println("Running mDNS...")
+	mdnsDiscoveryState.running = true
+	return true
+}
+
+func finishMDNSDiscovery(now time.Time) {
+	mdnsDiscoveryState.Lock()
+	mdnsDiscoveryState.running = false
+	mdnsDiscoveryState.lastFinished = now
+	mdnsDiscoveryState.Unlock()
+}
+
+func RunMDNS(_ string) {
+	if !beginMDNSDiscovery(time.Now()) {
+		return
+	}
+	printMDNS := os.Getenv("PRINT_MDNS") == "true"
+	defer func() {
+		finishMDNSDiscovery(time.Now())
+		if printMDNS {
+			fmt.Println("Done running mDNS")
+		}
+	}()
+	if printMDNS {
+		fmt.Println("Running mDNS...")
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()
 	entries := make(chan *zeroconf.ServiceEntry)
@@ -202,7 +230,6 @@ func RunMDNS(botIP string) {
 	resolver.Browse(ctx, "_ankivector._tcp", "local", entries)
 	for entry := range entries {
 		robotID := strings.Split(entry.HostName, ".")[0]
-		matched := false
 		for _, rinf := range vars.RecurringInfo {
 			if rinf.ID == robotID {
 				vars.AddToRInfo(rinf.ESN, robotID, fmt.Sprint(entry.AddrIPv4[0]))
@@ -221,13 +248,8 @@ func RunMDNS(botIP string) {
 					}
 					pingJdocs(fmt.Sprint(entry.AddrIPv4[0]))
 				}()
-				matched = true
 				break
 			}
 		}
-		if !matched {
-			MDNSAlreadyRun = append(MDNSAlreadyRun, botIP)
-		}
 	}
-	fmt.Println("Done running mDNS")
 }
