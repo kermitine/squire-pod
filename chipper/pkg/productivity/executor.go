@@ -222,6 +222,29 @@ func reminderBatteryAllowsDelivery(level vectorpb.BatteryLevel) bool {
 		level == vectorpb.BatteryLevel_BATTERY_LEVEL_FULL
 }
 
+func rescheduleAbortedTask(task Task, robot *vector.Vector, reason string) {
+	if !taskCanRun(task) {
+		return
+	}
+	batteryCtx, cancel := context.WithTimeout(context.Background(), reminderAvailabilityTimeout)
+	battery, err := robot.Conn.BatteryState(batteryCtx, &vectorpb.BatteryStateRequest{})
+	cancel()
+	if err != nil || battery == nil {
+		deferTask(task, reason+"; robot state is unavailable", reminderOfflineRetryDelay)
+		return
+	}
+	level := battery.GetBatteryLevel()
+	if level == vectorpb.BatteryLevel_BATTERY_LEVEL_UNKNOWN {
+		deferTask(task, reason+"; battery state is unavailable", reminderOfflineRetryDelay)
+		return
+	}
+	if !reminderBatteryAllowsDelivery(level) {
+		deferTask(task, reason+"; battery is low", reminderLowBatteryRetryDelay)
+		return
+	}
+	retryTask(task, reason)
+}
+
 func snoozeTask(task Task) {
 	if task.Source == "test" {
 		logger.Println("Productivity: Test reminders are one-shot and will not be snoozed")
@@ -392,6 +415,7 @@ func processTask(task Task) {
 	}
 	if !facePersonForReminder(ctx, robot, task.RobotESN) {
 		logger.Println("Productivity: Reminder presentation canceled because wheel stop could not be confirmed")
+		rescheduleAbortedTask(task, robot, "reminder approach was interrupted")
 		return
 	}
 	if !taskCanRun(task) {
@@ -401,10 +425,12 @@ func processTask(task Task) {
 	pagesHandled := len(task.Pages) > 0
 	if pagesHandled {
 		if !processTaskPages(ctx, robot, task.Pages) {
+			rescheduleAbortedTask(task, robot, "reminder pages were interrupted")
 			return
 		}
 	} else if len(task.FaceData) > 0 {
 		if !displayReminderFaceData(ctx, robot, task.FaceData, "Dynamic face image") {
+			rescheduleAbortedTask(task, robot, "reminder face display was interrupted")
 			return
 		}
 	} else if task.Image != "" {
@@ -420,7 +446,10 @@ func processTask(task Task) {
 					InterruptRunning: true,
 				}); err != nil {
 					logger.Println("Productivity: Face image display failed: " + err.Error())
+					rescheduleAbortedTask(task, robot, "reminder face image failed")
+					return
 				} else if !waitForReminderImage(ctx) {
+					rescheduleAbortedTask(task, robot, "reminder face image was interrupted")
 					return
 				}
 			}
@@ -431,6 +460,7 @@ func processTask(task Task) {
 	if !pagesHandled {
 		for _, faceData := range task.AdditionalFaceData {
 			if len(faceData) > 0 && !displayReminderFaceData(ctx, robot, faceData, "Additional face image") {
+				rescheduleAbortedTask(task, robot, "additional reminder face was interrupted")
 				return
 			}
 		}
@@ -448,6 +478,8 @@ func processTask(task Task) {
 				DurationScalar: 1.0,
 			}); err != nil {
 				logger.Println("Productivity: Reminder speech failed: " + err.Error())
+				rescheduleAbortedTask(task, robot, "reminder speech was interrupted")
+				return
 			}
 		}
 	}
@@ -514,6 +546,7 @@ func processTaskPages(ctx context.Context, robot *vector.Vector, pages []TaskPag
 				InterruptRunning: true,
 			}); err != nil {
 				logger.Println(fmt.Sprintf("Productivity: Page %d face image display failed: %v", index+1, err))
+				return false
 			} else if !waitForReminderPageSettle(ctx) {
 				return false
 			}
@@ -528,7 +561,7 @@ func processTaskPages(ctx context.Context, robot *vector.Vector, pages []TaskPag
 		})
 		if err != nil {
 			logger.Println(fmt.Sprintf("Productivity: Page %d speech failed: %v", index+1, err))
-			continue
+			return false
 		}
 		if response == nil || response.GetState() != vectorpb.SayTextResponse_FINISHED {
 			state := "missing"
@@ -610,7 +643,7 @@ func displayReminderFaceData(ctx context.Context, robot *vector.Vector, faceData
 		InterruptRunning: true,
 	}); err != nil {
 		logger.Println("Productivity: " + description + " display failed: " + err.Error())
-		return true
+		return false
 	}
 	return waitForReminderImage(ctx)
 }
