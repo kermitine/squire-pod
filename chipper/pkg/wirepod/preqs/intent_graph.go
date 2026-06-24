@@ -18,10 +18,12 @@ func (s *Server) ProcessIntentGraph(req *vtt.IntentGraphRequest) (*vtt.IntentGra
 		var err error
 		transcribedText, err = sttHandler(speechReq)
 		if err != nil {
+			notifyProductivityNoAudio(speechReq.Device)
 			ttr.IntentPass(req, "intent_system_noaudio", "voice processing error: "+err.Error(), map[string]string{"error": err.Error()}, true)
 			return nil, nil
 		}
 		if strings.TrimSpace(transcribedText) == "" {
+			notifyProductivityNoAudio(speechReq.Device)
 			ttr.IntentPass(req, "intent_system_noaudio", "", map[string]string{}, false)
 			return nil, nil
 		}
@@ -35,6 +37,7 @@ func (s *Server) ProcessIntentGraph(req *vtt.IntentGraphRequest) (*vtt.IntentGra
 				return nil, nil
 			}
 			logger.Println(err)
+			notifyProductivityNoAudio(speechReq.Device)
 			ttr.IntentPass(req, "intent_system_noaudio", "voice processing error", map[string]string{"error": err.Error()}, true)
 			return nil, nil
 		}

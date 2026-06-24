@@ -72,7 +72,6 @@ const (
 	confirmationTimedOut confirmationResult = iota
 	confirmationAccepted
 	confirmationDeclined
-	confirmationNoAudio
 
 	reminderImageDisplayDuration = 3 * time.Second
 	reminderImageSettleDelay     = 250 * time.Millisecond
@@ -107,7 +106,7 @@ const (
 	reminderLowBatteryRetryDelay = 5 * time.Minute
 	confirmationSpeechSettle     = 350 * time.Millisecond
 	confirmationSpeechRetryDelay = 500 * time.Millisecond
-	confirmationListenRetryDelay = 750 * time.Millisecond
+	confirmationListenRetryDelay = 1500 * time.Millisecond
 	confirmationListenAttempts   = 3
 	acknowledgementSettle        = 350 * time.Millisecond
 	acknowledgementRetryDelay    = 500 * time.Millisecond
@@ -115,9 +114,21 @@ const (
 )
 
 var (
-	taskQueue               = make(chan Task, 10)
-	configurationGeneration uint64
+	taskQueue                     = make(chan Task, 10)
+	configurationGeneration       uint64
+	confirmationListeningSessions = struct {
+		sync.Mutex
+		byESN map[string]*confirmationListeningSession
+	}{byESN: make(map[string]*confirmationListeningSession)}
 )
+
+type confirmationListeningSession struct {
+	mu           sync.Mutex
+	ctx          context.Context
+	ip           string
+	attempts     int
+	retryPending bool
+}
 
 func executorLoop() {
 	logger.Println("Productivity: executorLoop started")
@@ -1118,12 +1129,15 @@ func waitForConfirmation(ctx context.Context, robot *vector.Vector, esn string) 
 	if err != nil {
 		return confirmationTimedOut, err
 	}
-	listenAttempts := 0
+	listeningSession := registerConfirmationListeningSession(confirmationCtx, esn, ip)
+	defer unregisterConfirmationListeningSession(esn, listeningSession)
 	if ip != "" {
 		if err := triggerConfirmationListening(confirmationCtx, ip); err != nil {
 			logger.Println("Productivity: Could not start confirmation listening: " + err.Error())
 		} else {
-			listenAttempts++
+			listeningSession.mu.Lock()
+			listeningSession.attempts++
+			listeningSession.mu.Unlock()
 		}
 	}
 
@@ -1151,24 +1165,77 @@ func waitForConfirmation(ctx context.Context, robot *vector.Vector, esn string) 
 			return confirmationAccepted, nil
 		case confirmationDeclined:
 			return confirmationDeclined, nil
-		case confirmationNoAudio:
-			if ip == "" || listenAttempts >= confirmationListenAttempts {
-				return confirmationTimedOut, nil
-			}
-			retryTimer := time.NewTimer(confirmationListenRetryDelay)
-			select {
-			case <-confirmationCtx.Done():
-				retryTimer.Stop()
-				return confirmationTimedOut, nil
-			case <-retryTimer.C:
-			}
-			if err := triggerConfirmationListening(confirmationCtx, ip); err != nil {
-				return confirmationTimedOut, err
-			}
-			listenAttempts++
-			logger.Println(fmt.Sprintf("Productivity: No confirmation audio; listening again (%d/%d)", listenAttempts, confirmationListenAttempts))
 		}
 	}
+}
+
+func registerConfirmationListeningSession(ctx context.Context, esn, ip string) *confirmationListeningSession {
+	session := &confirmationListeningSession{ctx: ctx, ip: ip}
+	confirmationListeningSessions.Lock()
+	confirmationListeningSessions.byESN[esn] = session
+	confirmationListeningSessions.Unlock()
+	return session
+}
+
+func unregisterConfirmationListeningSession(esn string, session *confirmationListeningSession) {
+	confirmationListeningSessions.Lock()
+	if confirmationListeningSessions.byESN[esn] == session {
+		delete(confirmationListeningSessions.byESN, esn)
+	}
+	confirmationListeningSessions.Unlock()
+}
+
+// NotifyConfirmationNoAudio connects the cloud speech result directly to a
+// pending productivity confirmation. The robot does not reliably publish its
+// no-audio result back through the SDK event stream.
+func NotifyConfirmationNoAudio(esn string) bool {
+	confirmationListeningSessions.Lock()
+	session := confirmationListeningSessions.byESN[esn]
+	confirmationListeningSessions.Unlock()
+	if session == nil {
+		return false
+	}
+	return session.queueRetry()
+}
+
+func (s *confirmationListeningSession) queueRetry() bool {
+	s.mu.Lock()
+	if s.ip == "" || s.retryPending || s.attempts >= confirmationListenAttempts || s.ctx.Err() != nil {
+		s.mu.Unlock()
+		return false
+	}
+	s.retryPending = true
+	s.mu.Unlock()
+
+	go func() {
+		timer := time.NewTimer(confirmationListenRetryDelay)
+		select {
+		case <-s.ctx.Done():
+			timer.Stop()
+			s.mu.Lock()
+			s.retryPending = false
+			s.mu.Unlock()
+			return
+		case <-timer.C:
+		}
+
+		err := triggerConfirmationListening(s.ctx, s.ip)
+		s.mu.Lock()
+		s.retryPending = false
+		if err == nil {
+			s.attempts++
+		}
+		attempt := s.attempts
+		s.mu.Unlock()
+		if err != nil {
+			if s.ctx.Err() == nil {
+				logger.Println("Productivity: Could not restart confirmation listening: " + err.Error())
+			}
+			return
+		}
+		logger.Println(fmt.Sprintf("Productivity: No confirmation audio; listening again (%d/%d)", attempt, confirmationListenAttempts))
+	}()
+	return true
 }
 
 func triggerConfirmationListening(ctx context.Context, ip string) error {
@@ -1195,9 +1262,6 @@ func classifyConfirmationIntent(intent string) confirmationResult {
 	}
 	if strings.Contains(intent, "intent_imperative_negative") {
 		return confirmationDeclined
-	}
-	if strings.Contains(intent, "intent_system_noaudio") {
-		return confirmationNoAudio
 	}
 	return confirmationTimedOut
 }

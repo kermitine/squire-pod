@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/kercre123/wire-pod/chipper/pkg/logger"
+	"github.com/kercre123/wire-pod/chipper/pkg/productivity"
 	"github.com/kercre123/wire-pod/chipper/pkg/vars"
 	"github.com/kercre123/wire-pod/chipper/pkg/vtt"
 	sr "github.com/kercre123/wire-pod/chipper/pkg/wirepod/speechrequest"
@@ -19,10 +20,12 @@ func (s *Server) ProcessIntent(req *vtt.IntentRequest) (*vtt.IntentResponse, err
 		var err error
 		transcribedText, err = sttHandler(speechReq)
 		if err != nil {
+			notifyProductivityNoAudio(speechReq.Device)
 			ttr.IntentPass(req, "intent_system_noaudio", "voice processing error: "+err.Error(), map[string]string{"error": err.Error()}, true)
 			return nil, nil
 		}
 		if strings.TrimSpace(transcribedText) == "" {
+			notifyProductivityNoAudio(speechReq.Device)
 			ttr.IntentPass(req, "intent_system_noaudio", "", map[string]string{}, false)
 			return nil, nil
 		}
@@ -36,6 +39,7 @@ func (s *Server) ProcessIntent(req *vtt.IntentRequest) (*vtt.IntentResponse, err
 				return nil, nil
 			}
 			logger.Println(err)
+			notifyProductivityNoAudio(speechReq.Device)
 			ttr.IntentPass(req, "intent_system_noaudio", "voice processing error", map[string]string{"error": err.Error()}, true)
 			return nil, nil
 		}
@@ -61,4 +65,8 @@ func (s *Server) ProcessIntent(req *vtt.IntentRequest) (*vtt.IntentResponse, err
 	}
 	logger.Println("Bot " + speechReq.Device + " request served.")
 	return nil, nil
+}
+
+func notifyProductivityNoAudio(device string) {
+	productivity.NotifyConfirmationNoAudio(device)
 }

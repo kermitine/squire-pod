@@ -80,7 +80,6 @@ func TestClassifyConfirmationIntent(t *testing.T) {
 		{name: "affirmative", intent: `{"intent":"intent_imperative_affirmative"}`, want: confirmationAccepted},
 		{name: "global yes", intent: `{"intent":"intent_global_yes"}`, want: confirmationAccepted},
 		{name: "negative", intent: `{"intent":"intent_imperative_negative"}`, want: confirmationDeclined},
-		{name: "no audio", intent: `{"intent":"intent_system_noaudio"}`, want: confirmationNoAudio},
 		{name: "unrelated", intent: `{"intent":"intent_greeting_hello"}`, want: confirmationTimedOut},
 	}
 
