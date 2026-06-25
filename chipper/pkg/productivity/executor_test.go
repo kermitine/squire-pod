@@ -92,6 +92,28 @@ func TestClassifyConfirmationIntent(t *testing.T) {
 	}
 }
 
+func TestNotifyConfirmationIntentDeliversAcceptedResult(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	const esn = "test-esn"
+	session := registerConfirmationListeningSession(ctx, esn, "")
+	defer unregisterConfirmationListeningSession(esn, session)
+
+	if !NotifyConfirmationIntent(esn, "intent_imperative_affirmative") {
+		t.Fatal("NotifyConfirmationIntent() = false, want true")
+	}
+
+	select {
+	case got := <-session.results:
+		if got != confirmationAccepted {
+			t.Fatalf("delivered result = %v, want %v", got, confirmationAccepted)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("confirmation result was not delivered")
+	}
+}
+
 func TestMatchesPartialAffirmativeKeyphrase(t *testing.T) {
 	tests := []struct {
 		name      string

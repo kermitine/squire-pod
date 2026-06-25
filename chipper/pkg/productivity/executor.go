@@ -131,6 +131,7 @@ type confirmationListeningSession struct {
 	mu           sync.Mutex
 	ctx          context.Context
 	ip           string
+	results      chan confirmationResult
 	attempts     int
 	retryPending bool
 }
@@ -1199,13 +1200,50 @@ func waitForConfirmation(ctx context.Context, robot *vector.Vector, esn string) 
 		}
 	}
 
+	eventResults := make(chan confirmationResult, 1)
+	eventErrors := make(chan error, 1)
+	go watchConfirmationEventStream(confirmationCtx, eventStream, eventResults, eventErrors)
+
 	for {
-		msg, err := eventStream.Recv()
-		if err != nil {
+		select {
+		case result := <-listeningSession.results:
+			switch result {
+			case confirmationAccepted, confirmationDeclined:
+				return result, nil
+			default:
+				listeningSession.queueRetry("Confirmation was not yes or no")
+			}
+		case result := <-eventResults:
+			switch result {
+			case confirmationAccepted:
+				return confirmationAccepted, nil
+			case confirmationDeclined:
+				return confirmationDeclined, nil
+			case confirmationTimedOut:
+				listeningSession.queueRetry("Confirmation was not yes or no")
+			}
+		case err := <-eventErrors:
 			if confirmationCtx.Err() != nil {
 				return confirmationTimedOut, nil
 			}
 			return confirmationTimedOut, err
+		case <-confirmationCtx.Done():
+			return confirmationTimedOut, nil
+		}
+	}
+}
+
+func watchConfirmationEventStream(ctx context.Context, eventStream vectorpb.ExternalInterface_EventStreamClient, results chan<- confirmationResult, errors chan<- error) {
+	for {
+		msg, err := eventStream.Recv()
+		if err != nil {
+			if ctx.Err() == nil {
+				select {
+				case errors <- err:
+				default:
+				}
+			}
+			return
 		}
 		if msg == nil || msg.Event == nil {
 			continue
@@ -1218,19 +1256,16 @@ func waitForConfirmation(ctx context.Context, robot *vector.Vector, esn string) 
 		if err != nil {
 			continue
 		}
-		switch classifyConfirmationIntent(string(b)) {
-		case confirmationAccepted:
-			return confirmationAccepted, nil
-		case confirmationDeclined:
-			return confirmationDeclined, nil
-		case confirmationTimedOut:
-			listeningSession.queueRetry("Confirmation was not yes or no")
+		select {
+		case results <- classifyConfirmationIntent(string(b)):
+		case <-ctx.Done():
+			return
 		}
 	}
 }
 
 func registerConfirmationListeningSession(ctx context.Context, esn, ip string) *confirmationListeningSession {
-	session := &confirmationListeningSession{ctx: ctx, ip: ip}
+	session := &confirmationListeningSession{ctx: ctx, ip: ip, results: make(chan confirmationResult, 1)}
 	confirmationListeningSessions.Lock()
 	confirmationListeningSessions.byESN[esn] = session
 	confirmationListeningSessions.Unlock()
@@ -1268,6 +1303,35 @@ func NotifyConfirmationUnmatched(esn string) bool {
 		return false
 	}
 	return session.queueRetry("Confirmation was not yes or no")
+}
+
+// NotifyConfirmationIntent connects a matched cloud intent directly to a
+// pending productivity confirmation. The robot does not reliably echo matched
+// intents back through the SDK event stream.
+func NotifyConfirmationIntent(esn string, intent string) bool {
+	confirmationListeningSessions.Lock()
+	session := confirmationListeningSessions.byESN[esn]
+	confirmationListeningSessions.Unlock()
+	if session == nil {
+		return false
+	}
+	result := classifyConfirmationIntent(intent)
+	if result == confirmationTimedOut {
+		return session.queueRetry("Confirmation was not yes or no")
+	}
+	return session.deliverResult(result)
+}
+
+func (s *confirmationListeningSession) deliverResult(result confirmationResult) bool {
+	if s.ctx.Err() != nil {
+		return false
+	}
+	select {
+	case s.results <- result:
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *confirmationListeningSession) queueRetry(reason string) bool {
