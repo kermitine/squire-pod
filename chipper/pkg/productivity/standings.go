@@ -81,16 +81,20 @@ type standingsRow struct {
 
 func MatchStandingsVoiceCommand(text string) (string, bool) {
 	text = normalizeStandingsVoiceText(text)
-	if !containsAnyWord(text, "standing", "standings", "leaderboard", "rankings", "table") {
-		return "", false
-	}
-	if containsAny(text, "formula one", "formula 1", "f1", "grand prix") || containsAnyWord(text, "driver", "drivers", "constructor", "constructors") {
-		if containsAny(text, "constructor", "constructors", "team", "teams") {
+	standingsCue := hasStandingsCue(text)
+	leaderCue := hasStandingsLeaderCue(text)
+	f1SeriesCue := containsAny(text, "formula one", "formula 1", "f1", "grand prix")
+	f1SubjectCue := containsAnyWord(text, "driver", "drivers", "constructor", "constructors")
+	f1ChampionshipCue := containsAnyWord(text, "championship", "championships") && (f1SeriesCue || f1SubjectCue)
+	f1Cue := standingsCue || leaderCue || f1ChampionshipCue || containsAnyWord(text, "point", "points")
+	if f1Cue && (f1SeriesCue || f1SubjectCue) {
+		if containsAny(text, "constructor", "constructors") || (f1SeriesCue && containsAnyWord(text, "team", "teams")) {
 			return standingsF1Constructors, true
 		}
 		return standingsF1Drivers, true
 	}
-	if containsAny(text, "nba", "basketball", "eastern conference", "western conference") || containsAnyWord(text, "eastern", "western") {
+	nbaCue := standingsCue || leaderCue || containsAny(text, "playoff picture") || containsAnyWord(text, "seed", "seeds", "seeding", "seedings")
+	if nbaCue && (containsAny(text, "nba", "basketball", "eastern conference", "western conference") || containsAnyWord(text, "eastern", "western", "east", "west")) {
 		if containsAny(text, "eastern", "east") {
 			return standingsNBAEast, true
 		}
@@ -100,6 +104,22 @@ func MatchStandingsVoiceCommand(text string) (string, bool) {
 		return standingsNBAAll, true
 	}
 	return "", false
+}
+
+func hasStandingsCue(text string) bool {
+	return containsAnyWord(text,
+		"standing", "standings", "leaderboard", "leaderboards",
+		"ranking", "rankings", "rank", "ranks",
+		"table", "tables", "order", "position", "positions",
+	)
+}
+
+func hasStandingsLeaderCue(text string) bool {
+	return containsAny(text,
+		"who leads", "who is leading", "who s leading", "whos leading",
+		"who is first", "who s first", "whos first",
+		"first place", "in first", "top of",
+	)
 }
 
 func normalizeStandingsVoiceText(text string) string {
@@ -112,6 +132,7 @@ func normalizeStandingsVoiceText(text string) string {
 		"and b a", "nba",
 		"n be a", "nba",
 		"n b a", "nba",
+		"n ba", "nba",
 		"in b a", "nba",
 		"m b a", "nba",
 		"formula won", "formula one",
@@ -120,8 +141,32 @@ func normalizeStandingsVoiceText(text string) string {
 		"f won", "f1",
 		"f one", "f1",
 		"f 1", "f1",
+		"constructer", "constructor",
+		"constructers", "constructors",
+		"contractor", "constructor",
+		"contractors", "constructors",
 	)
-	return strings.Join(strings.Fields(replacer.Replace(text)), " ")
+	return strings.Join(collapseStandingsPossessiveTokens(strings.Fields(replacer.Replace(text))), " ")
+}
+
+func collapseStandingsPossessiveTokens(tokens []string) []string {
+	collapsed := make([]string, 0, len(tokens))
+	for index := 0; index < len(tokens); index++ {
+		if index+1 < len(tokens) && tokens[index+1] == "s" {
+			switch tokens[index] {
+			case "driver":
+				collapsed = append(collapsed, "drivers")
+				index++
+				continue
+			case "constructor":
+				collapsed = append(collapsed, "constructors")
+				index++
+				continue
+			}
+		}
+		collapsed = append(collapsed, tokens[index])
+	}
+	return collapsed
 }
 
 func containsAnyWord(text string, values ...string) bool {

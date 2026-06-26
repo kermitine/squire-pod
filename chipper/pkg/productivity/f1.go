@@ -394,6 +394,10 @@ func markF1Notified(raceID, kind string, now time.Time) {
 }
 
 func f1TopTen(race f1Competition) []f1Competitor {
+	return f1TopDrivers(race, 10)
+}
+
+func f1TopDrivers(race f1Competition, limit int) []f1Competitor {
 	competitors := append([]f1Competitor(nil), race.Competitors...)
 	sort.SliceStable(competitors, func(i, j int) bool {
 		left, right := competitors[i].Order, competitors[j].Order
@@ -405,14 +409,52 @@ func f1TopTen(race f1Competition) []f1Competitor {
 		}
 		return left < right
 	})
-	if len(competitors) > 10 {
-		competitors = competitors[:10]
+	if limit > 0 && len(competitors) > limit {
+		competitors = competitors[:limit]
 	}
 	return competitors
 }
 
+func f1LeaderboardDriverLimit(race f1Competition) int {
+	if f1QualifyingPhase(race) == "Q1" {
+		return 15
+	}
+	return 10
+}
+
+func f1QualifyingPhase(race f1Competition) string {
+	if !f1IsQualifying(race) {
+		return ""
+	}
+	detail := strings.ToUpper(strings.TrimSpace(race.Status.Type.ShortDetail))
+	if detail == "" {
+		detail = strings.ToUpper(strings.TrimSpace(race.Status.Type.Detail))
+	}
+	tokens := strings.FieldsFunc(detail, func(r rune) bool {
+		return (r < 'A' || r > 'Z') && (r < '0' || r > '9')
+	})
+	for index, token := range tokens {
+		switch token {
+		case "Q1", "Q2", "Q3":
+			return token
+		case "Q":
+			if index+1 < len(tokens) {
+				switch tokens[index+1] {
+				case "1":
+					return "Q1"
+				case "2":
+					return "Q2"
+				case "3":
+					return "Q3"
+				}
+			}
+		}
+	}
+	return ""
+}
+
 func f1LeaderboardTaskPages(event f1Event, race f1Competition, kind string) ([]TaskPage, error) {
-	top := f1TopTen(race)
+	top := f1TopDrivers(race, f1LeaderboardDriverLimit(race))
 	if len(top) == 0 {
 		return nil, fmt.Errorf("%s has no classified drivers", f1SessionName(race))
 	}
@@ -476,11 +518,23 @@ func f1LeaderboardSpeech(event f1Event, race f1Competition, drivers []f1Competit
 	if kind == "final" {
 		prefix = "Final F1 " + sessionName + " result"
 	}
+	if phase := f1QualifyingPhase(race); phase != "" {
+		prefix += ", " + phase
+	}
 	if offset == 0 {
-		prefix += " from " + f1TrackName(event) + ". The top ten are"
+		prefix += " from " + f1TrackName(event) + ". The top " + f1SpokenDriverLimit(f1LeaderboardDriverLimit(race)) + " are"
 		return prefix + ". " + strings.Join(parts, ". ") + "."
 	}
 	return strings.Join(parts, ". ") + "."
+}
+
+func f1SpokenDriverLimit(limit int) string {
+	switch limit {
+	case 15:
+		return "fifteen"
+	default:
+		return "ten"
+	}
 }
 
 func f1PregameSpeech(event f1Event, race f1Competition, now time.Time) string {

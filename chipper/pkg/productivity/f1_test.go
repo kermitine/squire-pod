@@ -1,6 +1,7 @@
 package productivity
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -148,8 +149,45 @@ func TestSyntheticF1LiveQualifyingLeaderboard(t *testing.T) {
 	if err != nil {
 		t.Fatalf("f1LeaderboardTaskPages() error = %v", err)
 	}
-	if len(pages) != 2 || !strings.Contains(pages[0].Speech, "F1 qualifying update") {
+	if len(pages) != 2 || !strings.Contains(pages[0].Speech, "F1 qualifying update, Q3") {
 		t.Fatalf("live qualifying test pages = %#v", pages)
+	}
+}
+
+func TestF1Q1QualifyingLeaderboardIncludesTopFifteen(t *testing.T) {
+	event, session := syntheticF1LiveQualifying()
+	session.Status.Type.ShortDetail = "Q1 - 8:12"
+	addF1TestCompetitors(&session, 11, 15)
+	pages, err := f1LeaderboardTaskPages(event, session, "live")
+	if err != nil {
+		t.Fatalf("f1LeaderboardTaskPages() error = %v", err)
+	}
+	if len(pages) != 3 {
+		t.Fatalf("Q1 pages = %d, want 3", len(pages))
+	}
+	speech := pages[0].Speech + " " + pages[1].Speech + " " + pages[2].Speech
+	if !strings.Contains(pages[0].Speech, "F1 qualifying update, Q1") || !strings.Contains(pages[0].Speech, "The top fifteen are") {
+		t.Fatalf("Q1 opening speech = %q", pages[0].Speech)
+	}
+	if !strings.Contains(speech, "Driver15") {
+		t.Fatalf("Q1 speech omitted fifteenth driver: %q", speech)
+	}
+}
+
+func TestF1Q2QualifyingLeaderboardIncludesTopTen(t *testing.T) {
+	event, session := syntheticF1LiveQualifying()
+	session.Status.Type.ShortDetail = "Q2 - 2:47"
+	addF1TestCompetitors(&session, 11, 15)
+	pages, err := f1LeaderboardTaskPages(event, session, "live")
+	if err != nil {
+		t.Fatalf("f1LeaderboardTaskPages() error = %v", err)
+	}
+	if len(pages) != 2 || !strings.Contains(pages[0].Speech, "F1 qualifying update, Q2") {
+		t.Fatalf("Q2 pages = %#v", pages)
+	}
+	speech := pages[0].Speech + " " + pages[1].Speech
+	if strings.Contains(speech, "Driver11") || strings.Contains(speech, "Driver15") {
+		t.Fatalf("Q2 speech included drivers outside the top ten: %q", speech)
 	}
 }
 
@@ -176,6 +214,15 @@ func TestF1AllowedHours(t *testing.T) {
 				t.Fatalf("f1WithinAllowedHours(%s, %q, %q) = %v, want %v", now.Format("15:04"), tt.start, tt.end, got, tt.want)
 			}
 		})
+	}
+}
+
+func addF1TestCompetitors(session *f1Competition, first, last int) {
+	for position := first; position <= last; position++ {
+		driver := f1Competitor{Order: position}
+		driver.Athlete.DisplayName = fmt.Sprintf("Driver%d", position)
+		driver.Athlete.FullName = driver.Athlete.DisplayName
+		session.Competitors = append(session.Competitors, driver)
 	}
 }
 

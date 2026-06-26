@@ -19,13 +19,22 @@ func TestMatchStandingsVoiceCommand(t *testing.T) {
 		{"and b a western conference standings", standingsNBAWest, true},
 		{"N. B. A. standings", standingsNBAAll, true},
 		{"show the NBA standings", standingsNBAAll, true},
+		{"who's leading the eastern conference", standingsNBAEast, true},
+		{"who is first in the NBA west", standingsNBAWest, true},
+		{"show me the NBA playoff picture", standingsNBAAll, true},
 		{"show Formula 1 driver standings", standingsF1Drivers, true},
 		{"if one driver standings", standingsF1Drivers, true},
 		{"driver championship rankings", standingsF1Drivers, true},
+		{"F1 drivers championship", standingsF1Drivers, true},
+		{"who leads the Formula One driver championship", standingsF1Drivers, true},
 		{"f one constructor table", standingsF1Constructors, true},
 		{"F1 constructor leaderboard", standingsF1Constructors, true},
 		{"constructor standings", standingsF1Constructors, true},
+		{"constructors championship order", standingsF1Constructors, true},
+		{"F1 team standings", standingsF1Constructors, true},
+		{"NBA team standings", standingsNBAAll, true},
 		{"help me understand NBA teams", "", false},
+		{"team standings", "", false},
 		{"how is Ferrari doing", "", false},
 	}
 	for _, tt := range tests {
@@ -38,10 +47,13 @@ func TestMatchStandingsVoiceCommand(t *testing.T) {
 
 func TestNormalizeStandingsVoiceTextHandlesASRConfusions(t *testing.T) {
 	tests := map[string]string{
-		"and be a standings":   "nba standings",
-		"n. b. a. standings":   "nba standings",
-		"if won standings":     "f1 standings",
-		"formula won rankings": "formula one rankings",
+		"and be a standings":    "nba standings",
+		"n. b. a. standings":    "nba standings",
+		"N B.A. standings":      "nba standings",
+		"if won standings":      "f1 standings",
+		"formula won rankings":  "formula one rankings",
+		"driver's championship": "drivers championship",
+		"contractor points":     "constructor points",
 	}
 	for input, want := range tests {
 		if got := normalizeStandingsVoiceText(input); got != want {
