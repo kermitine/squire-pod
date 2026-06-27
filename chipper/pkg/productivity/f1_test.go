@@ -92,6 +92,41 @@ func TestF1NotificationLifecycle(t *testing.T) {
 	}
 }
 
+func TestF1LiveNotificationUsesSessionIntervals(t *testing.T) {
+	resetF1NotificationState()
+	now := time.Date(2026, time.June, 28, 12, 0, 0, 0, time.UTC)
+	config := vars.F1Config{
+		LiveUpdateMinutes:           20,
+		QualifyingLiveUpdateMinutes: 6,
+		PracticeLiveUpdateMinutes:   3,
+	}
+	tests := []struct {
+		name       string
+		session    f1Competition
+		before     time.Duration
+		atInterval time.Duration
+	}{
+		{name: "race", session: f1LiveIntervalSession("race", "Race"), before: 19 * time.Minute, atInterval: 20 * time.Minute},
+		{name: "qualifying", session: f1LiveIntervalSession("qualifying", "Qual"), before: 5 * time.Minute, atInterval: 6 * time.Minute},
+		{name: "practice", session: f1LiveIntervalSession("practice", "FP1"), before: 2 * time.Minute, atInterval: 3 * time.Minute},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resetF1NotificationState()
+			if kind, ok := f1NotificationForSession(tt.session, config, now, true); !ok || kind != "live" {
+				t.Fatalf("initial live notification = %q, %v", kind, ok)
+			}
+			markF1Notified(tt.session.ID, "live", now)
+			if _, ok := f1NotificationForSession(tt.session, config, now.Add(tt.before), true); ok {
+				t.Fatal("live notification ignored its session interval")
+			}
+			if kind, ok := f1NotificationForSession(tt.session, config, now.Add(tt.atInterval), true); !ok || kind != "live" {
+				t.Fatalf("interval live notification = %q, %v", kind, ok)
+			}
+		})
+	}
+}
+
 func TestF1LeaderboardPagesShowAndSpeakTopTen(t *testing.T) {
 	event, race := syntheticF1Race()
 	pages, err := f1LeaderboardTaskPages(event, race, "final")
@@ -252,6 +287,14 @@ func addF1TestCompetitors(session *f1Competition, first, last int) {
 		driver.Athlete.FullName = driver.Athlete.DisplayName
 		session.Competitors = append(session.Competitors, driver)
 	}
+}
+
+func f1LiveIntervalSession(id, abbreviation string) f1Competition {
+	session := f1Competition{ID: id}
+	session.Type.Abbreviation = abbreviation
+	session.Status.Type.State = "in"
+	session.Competitors = []f1Competitor{{Order: 1}}
+	return session
 }
 
 func f1Orders(drivers []f1Competitor) []int {

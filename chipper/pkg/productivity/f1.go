@@ -365,10 +365,7 @@ func f1NotificationForSession(session f1Competition, config vars.F1Config, now t
 			return "pregame", true
 		}
 	case "in":
-		interval := time.Duration(config.LiveUpdateMinutes) * time.Minute
-		if interval <= 0 {
-			interval = 10 * time.Minute
-		}
+		interval := time.Duration(f1LiveUpdateMinutes(session, config)) * time.Minute
 		if len(session.Competitors) > 0 && (f1LastLiveUpdate[session.ID].IsZero() || now.Sub(f1LastLiveUpdate[session.ID]) >= interval) {
 			return "live", true
 		}
@@ -378,6 +375,19 @@ func f1NotificationForSession(session f1Competition, config vars.F1Config, now t
 		}
 	}
 	return "", false
+}
+
+func f1LiveUpdateMinutes(session f1Competition, config vars.F1Config) int {
+	minutes := config.LiveUpdateMinutes
+	if f1IsQualifying(session) && config.QualifyingLiveUpdateMinutes > 0 {
+		minutes = config.QualifyingLiveUpdateMinutes
+	} else if f1IsPractice(session) && config.PracticeLiveUpdateMinutes > 0 {
+		minutes = config.PracticeLiveUpdateMinutes
+	}
+	if minutes <= 0 {
+		return 10
+	}
+	return minutes
 }
 
 func f1WithinAllowedHours(now time.Time, startValue, endValue string) bool {

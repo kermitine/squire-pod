@@ -166,14 +166,16 @@ type NBAConfig struct {
 }
 
 type F1Config struct {
-	Enable            bool   `json:"enable"`
-	PregameMinutes    int    `json:"pregame_minutes"`
-	LiveUpdateMinutes int    `json:"live_update_minutes"`
-	NotifyFinal       bool   `json:"notify_final"`
-	NotifyQualifying  bool   `json:"notify_qualifying"`
-	NotifyPractice    bool   `json:"notify_practice"`
-	AllowedStart      string `json:"allowed_start"`
-	AllowedEnd        string `json:"allowed_end"`
+	Enable                      bool   `json:"enable"`
+	PregameMinutes              int    `json:"pregame_minutes"`
+	LiveUpdateMinutes           int    `json:"live_update_minutes"`
+	QualifyingLiveUpdateMinutes int    `json:"qualifying_live_update_minutes"`
+	PracticeLiveUpdateMinutes   int    `json:"practice_live_update_minutes"`
+	NotifyFinal                 bool   `json:"notify_final"`
+	NotifyQualifying            bool   `json:"notify_qualifying"`
+	NotifyPractice              bool   `json:"notify_practice"`
+	AllowedStart                string `json:"allowed_start"`
+	AllowedEnd                  string `json:"allowed_end"`
 }
 
 func join(p1, p2 string) string {

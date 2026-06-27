@@ -346,10 +346,22 @@
 		        <span>minutes before the race, qualifying, or practice</span>
 		      </div>
 
-		      <label for="f1LiveUpdateMinutes">Live Leaderboard</label>
+		      <label for="f1LiveUpdateMinutes">Race Live Leaderboard</label>
 		      <div style="display:flex; align-items:center; gap:8px;">
 		        <input id="f1LiveUpdateMinutes" type="number" min="1" max="60" value="10" class="tinput" style="width:90px;">
-		        <span>minutes between top-ten updates</span>
+		        <span>minutes between race updates</span>
+		      </div>
+
+		      <label for="f1QualifyingLiveUpdateMinutes">Qualifying Live Leaderboard</label>
+		      <div style="display:flex; align-items:center; gap:8px;">
+		        <input id="f1QualifyingLiveUpdateMinutes" type="number" min="1" max="60" value="10" class="tinput" style="width:90px;">
+		        <span>minutes between qualifying updates</span>
+		      </div>
+
+		      <label for="f1PracticeLiveUpdateMinutes">Practice Live Leaderboard</label>
+		      <div style="display:flex; align-items:center; gap:8px;">
+		        <input id="f1PracticeLiveUpdateMinutes" type="number" min="1" max="60" value="10" class="tinput" style="width:90px;">
+		        <span>minutes between practice updates</span>
 		      </div>
 
 		      <label for="f1NotifyFinal">Race Result</label>

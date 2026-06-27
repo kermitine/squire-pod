@@ -326,6 +326,18 @@ func handleSetProductivityAPI(w http.ResponseWriter, r *http.Request) {
 	if f1Config.LiveUpdateMinutes > 60 {
 		f1Config.LiveUpdateMinutes = 60
 	}
+	if f1Config.QualifyingLiveUpdateMinutes < 1 {
+		f1Config.QualifyingLiveUpdateMinutes = f1Config.LiveUpdateMinutes
+	}
+	if f1Config.QualifyingLiveUpdateMinutes > 60 {
+		f1Config.QualifyingLiveUpdateMinutes = 60
+	}
+	if f1Config.PracticeLiveUpdateMinutes < 1 {
+		f1Config.PracticeLiveUpdateMinutes = f1Config.LiveUpdateMinutes
+	}
+	if f1Config.PracticeLiveUpdateMinutes > 60 {
+		f1Config.PracticeLiveUpdateMinutes = 60
+	}
 	if !validClockTime(f1Config.AllowedStart) {
 		f1Config.AllowedStart = "08:00"
 	}
