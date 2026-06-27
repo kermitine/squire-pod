@@ -101,6 +101,8 @@ func apiHandler(w http.ResponseWriter, r *http.Request) {
 		handleTestF1QualifyingReminder(w, r)
 	case "test_f1_live_qualifying_reminder":
 		handleTestF1LiveQualifyingReminder(w, r)
+	case "test_f1_live_practice_reminder":
+		handleTestF1LivePracticeReminder(w, r)
 	case "is_api_v3":
 		fmt.Fprintf(w, "it is!")
 	default:
@@ -699,6 +701,16 @@ func handleTestF1LiveQualifyingReminder(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	fmt.Fprint(w, "Live F1 qualifying update queued.")
+}
+
+func handleTestF1LivePracticeReminder(w http.ResponseWriter, r *http.Request) {
+	targetRobot := strings.TrimSpace(r.FormValue("target_robot"))
+	if err := productivity.InjectTestF1LivePracticeUpdate(targetRobot); err != nil {
+		logger.Println("Unable to queue live F1 practice test: " + err.Error())
+		http.Error(w, "Unable to queue live F1 practice test: "+err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+	fmt.Fprint(w, "Live F1 practice update queued.")
 }
 
 func validClockTime(value string) bool {

@@ -22,7 +22,7 @@ func TestF1RaceCompetitionSelectsRaceSession(t *testing.T) {
 	}
 }
 
-func TestF1NotificationSessionsIncludeQualifyingWhenEnabled(t *testing.T) {
+func TestF1NotificationSessionsIncludeOptionalSessionsWhenEnabled(t *testing.T) {
 	event := f1Event{}
 	practice := f1Competition{ID: "practice"}
 	practice.Type.Abbreviation = "FP1"
@@ -32,11 +32,17 @@ func TestF1NotificationSessionsIncludeQualifyingWhenEnabled(t *testing.T) {
 	race.Type.Abbreviation = "Race"
 	event.Competitions = []f1Competition{practice, qualifying, race}
 
-	if got := f1NotificationSessions(event, false); len(got) != 1 || got[0].ID != "race" {
+	if got := f1NotificationSessions(event, false, false); len(got) != 1 || got[0].ID != "race" {
 		t.Fatalf("race-only sessions = %#v", got)
 	}
-	if got := f1NotificationSessions(event, true); len(got) != 2 || got[0].ID != "qualifying" || got[1].ID != "race" {
+	if got := f1NotificationSessions(event, true, false); len(got) != 2 || got[0].ID != "qualifying" || got[1].ID != "race" {
 		t.Fatalf("race and qualifying sessions = %#v", got)
+	}
+	if got := f1NotificationSessions(event, false, true); len(got) != 2 || got[0].ID != "practice" || got[1].ID != "race" {
+		t.Fatalf("race and practice sessions = %#v", got)
+	}
+	if got := f1NotificationSessions(event, true, true); len(got) != 3 || got[0].ID != "practice" || got[1].ID != "qualifying" || got[2].ID != "race" {
+		t.Fatalf("all F1 sessions = %#v", got)
 	}
 }
 
@@ -151,6 +157,28 @@ func TestSyntheticF1LiveQualifyingLeaderboard(t *testing.T) {
 	}
 	if len(pages) != 2 || !strings.Contains(pages[0].Speech, "F1 qualifying update, Q3") {
 		t.Fatalf("live qualifying test pages = %#v", pages)
+	}
+	if header := f1LeaderboardHeaderText(event, session, "live"); header != "Q3 - VECTOR RACEWAY" {
+		t.Fatalf("live qualifying header = %q", header)
+	}
+}
+
+func TestSyntheticF1LivePracticeLeaderboard(t *testing.T) {
+	event, session := syntheticF1LivePractice()
+	if !f1IsPractice(session) || session.Status.Type.State != "in" || session.Status.Type.ShortDetail != "Practice 1 - 12:34" {
+		t.Fatalf("syntheticF1LivePractice() session = %#v", session)
+	}
+	pages, err := f1LeaderboardTaskPages(event, session, "live")
+	if err != nil {
+		t.Fatalf("f1LeaderboardTaskPages() error = %v", err)
+	}
+	if len(pages) != 2 || !strings.Contains(pages[0].Speech, "F1 practice update") {
+		t.Fatalf("live practice test pages = %#v", pages)
+	}
+	now := time.Now()
+	session.Date = now.Add(30 * time.Minute).Format(time.RFC3339)
+	if speech := f1PregameSpeech(event, session, now); !strings.Contains(speech, "Formula 1 practice reminder") || !strings.Contains(speech, "Practice at Vector Raceway") {
+		t.Fatalf("practice pregame speech = %q", speech)
 	}
 }
 

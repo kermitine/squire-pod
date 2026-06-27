@@ -132,18 +132,22 @@ func resetF1NotificationState() {
 }
 
 func InjectTestF1Update(robotESN string) error {
-	return injectTestF1Leaderboard(robotESN, false, "live")
+	return injectTestF1Leaderboard(robotESN, "race", "live")
 }
 
 func InjectTestF1QualifyingUpdate(robotESN string) error {
-	return injectTestF1Leaderboard(robotESN, true, "final")
+	return injectTestF1Leaderboard(robotESN, "qualifying", "final")
 }
 
 func InjectTestF1LiveQualifyingUpdate(robotESN string) error {
-	return injectTestF1Leaderboard(robotESN, true, "live")
+	return injectTestF1Leaderboard(robotESN, "qualifying", "live")
 }
 
-func injectTestF1Leaderboard(robotESN string, qualifying bool, kind string) error {
+func InjectTestF1LivePracticeUpdate(robotESN string) error {
+	return injectTestF1Leaderboard(robotESN, "practice", "live")
+}
+
+func injectTestF1Leaderboard(robotESN string, sessionType, kind string) error {
 	if robotESN == "" || robotESN == "None" {
 		robotESN = productivityTargetRobot()
 	}
@@ -152,7 +156,8 @@ func injectTestF1Leaderboard(robotESN string, qualifying bool, kind string) erro
 	}
 	event, race := syntheticF1Race()
 	logName := "live-race"
-	if qualifying {
+	switch sessionType {
+	case "qualifying":
 		if kind == "final" {
 			event, race = syntheticF1Qualifying()
 			logName = "qualifying-final"
@@ -160,6 +165,9 @@ func injectTestF1Leaderboard(robotESN string, qualifying bool, kind string) erro
 			event, race = syntheticF1LiveQualifying()
 			logName = "live-qualifying"
 		}
+	case "practice":
+		event, race = syntheticF1LivePractice()
+		logName = "live-practice"
 	}
 	pages, err := f1LeaderboardTaskPages(event, race, kind)
 	if err != nil {
@@ -212,6 +220,14 @@ func syntheticF1LiveQualifying() (f1Event, f1Competition) {
 	return event, qualifying
 }
 
+func syntheticF1LivePractice() (f1Event, f1Competition) {
+	event, practice := syntheticF1Race()
+	practice.ID = "f1-test-practice"
+	practice.Type.Abbreviation = "FP1"
+	practice.Status.Type.ShortDetail = "Practice 1 - 12:34"
+	return event, practice
+}
+
 func checkF1Races() {
 	config := vars.APIConfig.Productivity.F1
 	if !config.Enable {
@@ -230,9 +246,9 @@ func checkF1Races() {
 	}
 	now := timeInProductivityTimezone(time.Now(), vars.APIConfig.Productivity.Timezone)
 	for _, event := range scoreboard.Events {
-		for _, session := range f1NotificationSessions(event, config.NotifyQualifying) {
+		for _, session := range f1NotificationSessions(event, config.NotifyQualifying, config.NotifyPractice) {
 			notifyFinal := config.NotifyFinal
-			if f1IsQualifying(session) {
+			if f1IsQualifying(session) || f1IsPractice(session) {
 				notifyFinal = true
 			}
 			kind, notify := f1NotificationForSession(session, config, now, notifyFinal)
@@ -297,10 +313,12 @@ func f1RaceCompetition(event f1Event) (f1Competition, bool) {
 	return f1Competition{}, false
 }
 
-func f1NotificationSessions(event f1Event, includeQualifying bool) []f1Competition {
-	sessions := make([]f1Competition, 0, 2)
+func f1NotificationSessions(event f1Event, includeQualifying, includePractice bool) []f1Competition {
+	sessions := make([]f1Competition, 0, 3)
 	for _, competition := range event.Competitions {
-		if strings.EqualFold(competition.Type.Abbreviation, "Race") || (includeQualifying && f1IsQualifying(competition)) {
+		if strings.EqualFold(competition.Type.Abbreviation, "Race") ||
+			(includeQualifying && f1IsQualifying(competition)) ||
+			(includePractice && f1IsPractice(competition)) {
 			sessions = append(sessions, competition)
 		}
 	}
@@ -311,9 +329,20 @@ func f1IsQualifying(session f1Competition) bool {
 	return strings.Contains(strings.ToLower(session.Type.Abbreviation), "qual")
 }
 
+func f1IsPractice(session f1Competition) bool {
+	abbreviation := strings.ToLower(strings.TrimSpace(session.Type.Abbreviation))
+	return strings.Contains(abbreviation, "practice") ||
+		strings.Contains(abbreviation, "prac") ||
+		strings.HasPrefix(abbreviation, "fp") ||
+		strings.HasPrefix(abbreviation, "p")
+}
+
 func f1SessionName(session f1Competition) string {
 	if f1IsQualifying(session) {
 		return "qualifying"
+	}
+	if f1IsPractice(session) {
+		return "practice"
 	}
 	return "race"
 }
@@ -475,13 +504,7 @@ func f1LeaderboardTaskPages(event f1Event, race f1Competition, kind string) ([]T
 func renderF1LeaderboardFace(event f1Event, race f1Competition, drivers []f1Competitor, offset int, kind string) []byte {
 	canvas := image.NewNRGBA(image.Rect(0, 0, 184, 96))
 	draw.Draw(canvas, canvas.Bounds(), image.NewUniform(color.Black), image.Point{}, draw.Src)
-	header := f1TrackName(event)
-	if kind == "final" {
-		header = strings.ToUpper(f1SessionName(race)) + " FINAL - " + header
-	} else if detail := f1StatusText(race); detail != "" {
-		header += " - " + detail
-	}
-	drawCenteredText(canvas, truncateF1Text(strings.ToUpper(header), 25), 92, 11, color.RGBA{100, 220, 255, 255})
+	drawCenteredText(canvas, f1LeaderboardHeaderText(event, race, kind), 92, 11, color.RGBA{100, 220, 255, 255})
 	for index, driver := range drivers {
 		position := offset + index + 1
 		y := 19 + index*15
@@ -492,6 +515,18 @@ func renderF1LeaderboardFace(event f1Event, race f1Competition, drivers []f1Comp
 		f1DrawText(canvas, team.Code, 157, y+10, team.Color)
 	}
 	return convertImageToVectorFaceData(canvas)
+}
+
+func f1LeaderboardHeaderText(event f1Event, race f1Competition, kind string) string {
+	header := f1TrackName(event)
+	if kind == "final" {
+		header = strings.ToUpper(f1SessionName(race)) + " FINAL - " + header
+	} else if phase := f1QualifyingPhase(race); phase != "" {
+		header = phase + " - " + header
+	} else if detail := f1StatusText(race); detail != "" {
+		header += " - " + detail
+	}
+	return truncateF1Text(strings.ToUpper(header), 25)
 }
 
 func renderF1RaceFace(event f1Event, race f1Competition, location *time.Location) []byte {
@@ -546,6 +581,8 @@ func f1PregameSpeech(event f1Event, race f1Competition, now time.Time) string {
 	subject := "The race"
 	if f1IsQualifying(race) {
 		subject = "Qualifying"
+	} else if f1IsPractice(race) {
+		subject = "Practice"
 	}
 	return fmt.Sprintf("Formula 1 %s reminder. %s at %s starts in about %d minutes.", sessionName, subject, f1TrackName(event), minutes)
 }

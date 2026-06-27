@@ -171,6 +171,7 @@ type F1Config struct {
 	LiveUpdateMinutes int    `json:"live_update_minutes"`
 	NotifyFinal       bool   `json:"notify_final"`
 	NotifyQualifying  bool   `json:"notify_qualifying"`
+	NotifyPractice    bool   `json:"notify_practice"`
 	AllowedStart      string `json:"allowed_start"`
 	AllowedEnd        string `json:"allowed_end"`
 }

@@ -343,7 +343,7 @@
 		      <label for="f1PregameMinutes">Session Reminder</label>
 		      <div style="display:flex; align-items:center; gap:8px;">
 		        <input id="f1PregameMinutes" type="number" min="1" max="1440" value="60" class="tinput" style="width:90px;">
-		        <span>minutes before the race or qualifying</span>
+		        <span>minutes before the race, qualifying, or practice</span>
 		      </div>
 
 		      <label for="f1LiveUpdateMinutes">Live Leaderboard</label>
@@ -364,6 +364,12 @@
 		        <label class="checkbox-label" for="f1NotifyQualifying">Remind me and announce qualifying updates</label>
 		      </div>
 
+		      <label for="f1NotifyPractice">Practice</label>
+		      <div>
+		        <input type="checkbox" id="f1NotifyPractice">
+		        <label class="checkbox-label" for="f1NotifyPractice">Remind me and announce practice updates</label>
+		      </div>
+
 		      <label for="f1AllowedStart">Allowed Hours</label>
 		      <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
 		        <input id="f1AllowedStart" type="time" value="08:00" class="tinput" style="width:120px;">
@@ -375,6 +381,7 @@
 		    <div style="margin-top:20px; padding-top:15px; border-top:1px solid #444; display:flex; justify-content:flex-end; gap:10px; flex-wrap:wrap;">
 		      <button type="button" class="btn-generic btn-test" onclick="testF1LiveRaceReminder()">Test Live Race</button>
 		      <button type="button" class="btn-generic btn-test" onclick="testF1LiveQualifyingReminder()">Test Live Qualifying</button>
+		      <button type="button" class="btn-generic btn-test" onclick="testF1LivePracticeReminder()">Test Live Practice</button>
 		      <button type="button" class="btn-generic btn-test" onclick="testF1QualifyingReminder()">Test Qualifying Final</button>
 		    </div>
 		  </div>
