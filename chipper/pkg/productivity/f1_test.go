@@ -127,6 +127,32 @@ func TestF1LiveNotificationUsesSessionIntervals(t *testing.T) {
 	}
 }
 
+func TestF1NotableLeaderChange(t *testing.T) {
+	resetF1NotificationState()
+	_, session := syntheticF1Race()
+	if kind, notify := f1NotableMoment(session); notify || kind != "" {
+		t.Fatalf("initial notable moment = %q, %v", kind, notify)
+	}
+	session.Competitors[0].Order = 2
+	session.Competitors[1].Order = 1
+	if kind, notify := f1NotableMoment(session); !notify || kind != "leader" {
+		t.Fatalf("leader notable moment = %q, %v", kind, notify)
+	}
+}
+
+func TestF1NotableQualifyingPhaseChange(t *testing.T) {
+	resetF1NotificationState()
+	_, session := syntheticF1LiveQualifying()
+	session.Status.Type.ShortDetail = "Q1 - 5:00"
+	if kind, notify := f1NotableMoment(session); notify || kind != "" {
+		t.Fatalf("initial notable moment = %q, %v", kind, notify)
+	}
+	session.Status.Type.ShortDetail = "Q2 - 12:00"
+	if kind, notify := f1NotableMoment(session); !notify || kind != "phase" {
+		t.Fatalf("phase notable moment = %q, %v", kind, notify)
+	}
+}
+
 func TestF1LeaderboardPagesShowAndSpeakTopTen(t *testing.T) {
 	event, race := syntheticF1Race()
 	pages, err := f1LeaderboardTaskPages(event, race, "final")

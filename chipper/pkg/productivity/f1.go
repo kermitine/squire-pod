@@ -80,10 +80,16 @@ type f1Team struct {
 	Color color.RGBA
 }
 
+type f1NotableSnapshot struct {
+	Leader string
+	Phase  string
+}
+
 var (
-	f1PregameNotified = make(map[string]bool)
-	f1FinalNotified   = make(map[string]bool)
-	f1LastLiveUpdate  = make(map[string]time.Time)
+	f1PregameNotified  = make(map[string]bool)
+	f1FinalNotified    = make(map[string]bool)
+	f1LastLiveUpdate   = make(map[string]time.Time)
+	f1NotableSnapshots = make(map[string]f1NotableSnapshot)
 )
 
 var f1Teams = map[string]f1Team{
@@ -129,6 +135,7 @@ func resetF1NotificationState() {
 	f1PregameNotified = make(map[string]bool)
 	f1FinalNotified = make(map[string]bool)
 	f1LastLiveUpdate = make(map[string]time.Time)
+	f1NotableSnapshots = make(map[string]f1NotableSnapshot)
 }
 
 func InjectTestF1Update(robotESN string) error {
@@ -251,7 +258,13 @@ func checkF1Races() {
 			if f1IsQualifying(session) || f1IsPractice(session) {
 				notifyFinal = true
 			}
-			kind, notify := f1NotificationForSession(session, config, now, notifyFinal)
+			kind, notify := "", false
+			if config.NotifyNotable {
+				kind, notify = f1NotableMoment(session)
+			}
+			if !notify {
+				kind, notify = f1NotificationForSession(session, config, now, notifyFinal)
+			}
 			if !notify {
 				continue
 			}
@@ -388,6 +401,40 @@ func f1LiveUpdateMinutes(session f1Competition, config vars.F1Config) int {
 		return 10
 	}
 	return minutes
+}
+
+func f1NotableMoment(session f1Competition) (string, bool) {
+	if strings.ToLower(session.Status.Type.State) != "in" || len(session.Competitors) == 0 {
+		return "", false
+	}
+	leader := ""
+	if top := f1TopDrivers(session, 1); len(top) > 0 {
+		leader = f1DriverSnapshotKey(top[0])
+	}
+	phase := f1QualifyingPhase(session)
+	previous, seen := f1NotableSnapshots[session.ID]
+	f1NotableSnapshots[session.ID] = f1NotableSnapshot{Leader: leader, Phase: phase}
+	if !seen {
+		return "", false
+	}
+	if previous.Leader != "" && leader != "" && previous.Leader != leader {
+		return "leader", true
+	}
+	if previous.Phase != "" && phase != "" && previous.Phase != phase {
+		return "phase", true
+	}
+	return "", false
+}
+
+func f1DriverSnapshotKey(driver f1Competitor) string {
+	if driver.ID != "" {
+		return driver.ID
+	}
+	name := strings.TrimSpace(driver.Athlete.DisplayName)
+	if name == "" {
+		name = strings.TrimSpace(driver.Athlete.FullName)
+	}
+	return strings.ToLower(name)
 }
 
 func f1WithinAllowedHours(now time.Time, startValue, endValue string) bool {
@@ -562,6 +609,10 @@ func f1LeaderboardSpeech(event f1Event, race f1Competition, drivers []f1Competit
 	prefix := "F1 " + sessionName + " update"
 	if kind == "final" {
 		prefix = "Final F1 " + sessionName + " result"
+	} else if kind == "leader" {
+		prefix = "F1 " + sessionName + " notable moment. Leader change"
+	} else if kind == "phase" {
+		prefix = "F1 " + sessionName + " notable moment"
 	}
 	if phase := f1QualifyingPhase(race); phase != "" {
 		prefix += ", " + phase

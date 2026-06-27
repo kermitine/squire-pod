@@ -2,6 +2,7 @@ package productivity
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -123,6 +124,45 @@ func TestF1StandingsPagesIncludeEveryDriverAndConstructor(t *testing.T) {
 	}
 	if strings.Contains(standingsPageSpeech(constructorPages), ", 0 points") || !strings.Contains(standingsPageSpeech(constructorPages), "299 points") {
 		t.Fatalf("constructor speech has incorrect points: %s", standingsPageSpeech(constructorPages))
+	}
+}
+
+func TestF1StandingsDecodeESPNStringStatValues(t *testing.T) {
+	payload := []byte(`{
+		"children": [{
+			"name": "Driver Standings",
+			"standings": {
+				"entries": [{
+					"athlete": {"id": "5829", "displayName": "Kimi Antonelli"},
+					"stats": [
+						{"name": "rank", "value": 1.0, "displayValue": "1"},
+						{"name": "championshipPts", "type": "points", "value": 156.0, "displayValue": "156"},
+						{"name": "BRN", "value": " ", "displayValue": " "}
+					]
+				}]
+			}
+		}]
+	}`)
+	var response espnStandingsResponse
+	if err := json.Unmarshal(payload, &response); err != nil {
+		t.Fatalf("F1 standings decode failed: %v", err)
+	}
+	pages, err := f1StandingsPages(response, standingsF1Drivers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if speech := standingsPageSpeech(pages); !strings.Contains(speech, "156 points") {
+		t.Fatalf("driver points were not parsed: %s", speech)
+	}
+}
+
+func TestStandingStatParsesNumericStringValue(t *testing.T) {
+	var stat espnStandingStat
+	if err := json.Unmarshal([]byte(`{"name":"rank","value":"12","displayValue":""}`), &stat); err != nil {
+		t.Fatal(err)
+	}
+	if got := standingStat([]espnStandingStat{stat}, "rank"); got != "12" {
+		t.Fatalf("standingStat() = %q, want 12", got)
 	}
 }
 

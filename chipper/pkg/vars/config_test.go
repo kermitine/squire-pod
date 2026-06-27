@@ -23,8 +23,9 @@ func TestWriteConfigToDiskWithErrorPersistsEmptyReminders(t *testing.T) {
 		PregameMinutes:    15,
 		LiveUpdateMinutes: 5,
 		NotifyFinal:       true,
+		NotifyNotable:     true,
 	}
-	APIConfig.Productivity.F1 = F1Config{Enable: true, PregameMinutes: 60, LiveUpdateMinutes: 10, QualifyingLiveUpdateMinutes: 6, PracticeLiveUpdateMinutes: 3, NotifyFinal: true, NotifyQualifying: true, NotifyPractice: true, AllowedStart: "08:00", AllowedEnd: "22:00"}
+	APIConfig.Productivity.F1 = F1Config{Enable: true, PregameMinutes: 60, LiveUpdateMinutes: 10, QualifyingLiveUpdateMinutes: 6, PracticeLiveUpdateMinutes: 3, NotifyFinal: true, NotifyQualifying: true, NotifyPractice: true, NotifyNotable: true, AllowedStart: "08:00", AllowedEnd: "22:00"}
 
 	if err := WriteConfigToDiskWithError(); err != nil {
 		t.Fatalf("WriteConfigToDiskWithError() error = %v", err)
@@ -40,10 +41,10 @@ func TestWriteConfigToDiskWithErrorPersistsEmptyReminders(t *testing.T) {
 	if persisted.Productivity.ManualConfig != "[]" {
 		t.Fatalf("manual_config = %q, want []", persisted.Productivity.ManualConfig)
 	}
-	if !persisted.Productivity.NBA.Enable || len(persisted.Productivity.NBA.FavoriteTeams) != 2 || !persisted.Productivity.NBA.NotifyFinal {
+	if !persisted.Productivity.NBA.Enable || len(persisted.Productivity.NBA.FavoriteTeams) != 2 || !persisted.Productivity.NBA.NotifyFinal || !persisted.Productivity.NBA.NotifyNotable {
 		t.Fatalf("NBA config was not persisted: %#v", persisted.Productivity.NBA)
 	}
-	if !persisted.Productivity.F1.Enable || persisted.Productivity.F1.LiveUpdateMinutes != 10 || persisted.Productivity.F1.QualifyingLiveUpdateMinutes != 6 || persisted.Productivity.F1.PracticeLiveUpdateMinutes != 3 || !persisted.Productivity.F1.NotifyFinal || !persisted.Productivity.F1.NotifyQualifying || !persisted.Productivity.F1.NotifyPractice || persisted.Productivity.F1.AllowedStart != "08:00" {
+	if !persisted.Productivity.F1.Enable || persisted.Productivity.F1.LiveUpdateMinutes != 10 || persisted.Productivity.F1.QualifyingLiveUpdateMinutes != 6 || persisted.Productivity.F1.PracticeLiveUpdateMinutes != 3 || !persisted.Productivity.F1.NotifyFinal || !persisted.Productivity.F1.NotifyQualifying || !persisted.Productivity.F1.NotifyPractice || !persisted.Productivity.F1.NotifyNotable || persisted.Productivity.F1.AllowedStart != "08:00" {
 		t.Fatalf("F1 config was not persisted: %#v", persisted.Productivity.F1)
 	}
 }

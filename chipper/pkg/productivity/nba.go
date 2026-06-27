@@ -151,11 +151,19 @@ type nbaLogoCache struct {
 	images map[string]image.Image
 }
 
+type nbaNotableSnapshot struct {
+	Leader         string
+	AwayScore      int
+	HomeScore      int
+	ClutchNotified bool
+}
+
 var (
-	nbaPregameNotified = make(map[string]bool)
-	nbaFinalNotified   = make(map[string]bool)
-	nbaLastLiveUpdate  = make(map[string]time.Time)
-	nbaLogos           = nbaLogoCache{images: make(map[string]image.Image)}
+	nbaPregameNotified  = make(map[string]bool)
+	nbaFinalNotified    = make(map[string]bool)
+	nbaLastLiveUpdate   = make(map[string]time.Time)
+	nbaNotableSnapshots = make(map[string]nbaNotableSnapshot)
+	nbaLogos            = nbaLogoCache{images: make(map[string]image.Image)}
 )
 
 func NormalizeNBATeams(teams []string) []string {
@@ -377,6 +385,7 @@ func resetNBANotificationState() {
 	nbaPregameNotified = make(map[string]bool)
 	nbaFinalNotified = make(map[string]bool)
 	nbaLastLiveUpdate = make(map[string]time.Time)
+	nbaNotableSnapshots = make(map[string]nbaNotableSnapshot)
 }
 
 func checkNBAGames() {
@@ -747,6 +756,11 @@ func nbaNotificationForGame(game nbaEvent, config vars.NBAConfig, now time.Time)
 			return "pregame", phrase, true
 		}
 	case "in":
+		if config.NotifyNotable {
+			if phrase, ok := nbaNotableMoment(game, away, home); ok {
+				return "notable", phrase, true
+			}
+		}
 		interval := time.Duration(config.LiveUpdateMinutes) * time.Minute
 		if interval <= 0 {
 			interval = 5 * time.Minute
@@ -766,6 +780,77 @@ func nbaNotificationForGame(game nbaEvent, config vars.NBAConfig, now time.Time)
 		}
 	}
 	return "", "", false
+}
+
+func nbaNotableMoment(game nbaEvent, away, home nbaCompetitor) (string, bool) {
+	awayScore, awayOK := strconv.Atoi(scoreOrZero(away.Score))
+	homeScore, homeOK := strconv.Atoi(scoreOrZero(home.Score))
+	if awayOK != nil || homeOK != nil {
+		return "", false
+	}
+	leader := nbaScoreLeader(awayScore, homeScore)
+	detail := game.Status.Type.ShortDetail
+	if detail == "" {
+		detail = game.Status.Type.Detail
+	}
+	clutch := nbaIsClutchGame(detail, awayScore, homeScore)
+	previous, seen := nbaNotableSnapshots[game.ID]
+	snapshot := nbaNotableSnapshot{
+		Leader:         leader,
+		AwayScore:      awayScore,
+		HomeScore:      homeScore,
+		ClutchNotified: previous.ClutchNotified || clutch,
+	}
+	nbaNotableSnapshots[game.ID] = snapshot
+	if !seen {
+		return "", false
+	}
+	if previous.Leader != "" && previous.Leader != leader {
+		switch leader {
+		case "away":
+			return fmt.Sprintf("NBA notable moment. The %s have taken the lead, %d to %d. %s.", spokenNBATeamName(away), awayScore, homeScore, spokenNBAGameDetail(detail)), true
+		case "home":
+			return fmt.Sprintf("NBA notable moment. The %s have taken the lead, %d to %d. %s.", spokenNBATeamName(home), homeScore, awayScore, spokenNBAGameDetail(detail)), true
+		case "tie":
+			return fmt.Sprintf("NBA notable moment. The game is tied at %d. %s.", awayScore, spokenNBAGameDetail(detail)), true
+		}
+	}
+	if clutch && !previous.ClutchNotified {
+		return fmt.Sprintf("NBA notable moment. Close game. %s, %d. %s, %d. %s.", spokenNBATeamName(away), awayScore, spokenNBATeamName(home), homeScore, spokenNBAGameDetail(detail)), true
+	}
+	return "", false
+}
+
+func nbaScoreLeader(awayScore, homeScore int) string {
+	if awayScore > homeScore {
+		return "away"
+	}
+	if homeScore > awayScore {
+		return "home"
+	}
+	return "tie"
+}
+
+func nbaIsClutchGame(detail string, awayScore, homeScore int) bool {
+	period, seconds, ok := nbaClockDetail(detail)
+	if !ok || (period != "4th" && period != "ot") {
+		return false
+	}
+	margin := awayScore - homeScore
+	if margin < 0 {
+		margin = -margin
+	}
+	return seconds <= 120 && margin <= 3
+}
+
+func nbaClockDetail(detail string) (string, int, bool) {
+	match := nbaSpokenClockPattern.FindStringSubmatch(detail)
+	if len(match) != 4 {
+		return "", 0, false
+	}
+	minutes, _ := strconv.Atoi(match[1])
+	seconds, _ := strconv.Atoi(match[2])
+	return strings.ToLower(match[3]), minutes*60 + seconds, true
 }
 
 func markNBANotified(gameID, kind string, now time.Time) {

@@ -54,6 +54,45 @@ func TestNBALiveNotificationInterval(t *testing.T) {
 	}
 }
 
+func TestNBANotableLeadChangeBypassesLiveInterval(t *testing.T) {
+	resetNBANotificationState()
+	now := time.Date(2026, time.January, 2, 1, 0, 0, 0, time.UTC)
+	game := testNBAGame("lead-change", "in", now, "100", "99")
+	game.Status.Type.ShortDetail = "3:00 - 4th"
+	config := vars.NBAConfig{LiveUpdateMinutes: 30, NotifyNotable: true}
+
+	kind, _, notify := nbaNotificationForGame(game, config, now)
+	if !notify || kind != "live" {
+		t.Fatalf("initial notification = (%q, %v)", kind, notify)
+	}
+	markNBANotified(game.ID, kind, now)
+	game.Competitions[0].Competitors[1].Score = "101"
+	kind, phrase, notify := nbaNotificationForGame(game, config, now.Add(time.Minute))
+	if !notify || kind != "notable" || !strings.Contains(phrase, "taken the lead") {
+		t.Fatalf("lead-change notification = (%q, %q, %v)", kind, phrase, notify)
+	}
+}
+
+func TestNBANotableLateCloseGame(t *testing.T) {
+	resetNBANotificationState()
+	now := time.Date(2026, time.January, 2, 1, 0, 0, 0, time.UTC)
+	game := testNBAGame("clutch", "in", now, "100", "95")
+	game.Status.Type.ShortDetail = "3:00 - 4th"
+	config := vars.NBAConfig{LiveUpdateMinutes: 30, NotifyNotable: true}
+
+	kind, _, notify := nbaNotificationForGame(game, config, now)
+	if !notify || kind != "live" {
+		t.Fatalf("initial notification = (%q, %v)", kind, notify)
+	}
+	markNBANotified(game.ID, kind, now)
+	game.Competitions[0].Competitors[1].Score = "98"
+	game.Status.Type.ShortDetail = "1:30 - 4th"
+	kind, phrase, notify := nbaNotificationForGame(game, config, now.Add(time.Minute))
+	if !notify || kind != "notable" || !strings.Contains(phrase, "Close game") {
+		t.Fatalf("clutch notification = (%q, %q, %v)", kind, phrase, notify)
+	}
+}
+
 func TestSpokenNBAGameDetail(t *testing.T) {
 	tests := []struct {
 		detail string

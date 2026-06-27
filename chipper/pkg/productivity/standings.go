@@ -68,6 +68,43 @@ type espnStandingStat struct {
 	DisplayValue string  `json:"displayValue"`
 }
 
+func (stat *espnStandingStat) UnmarshalJSON(data []byte) error {
+	type rawStandingStat struct {
+		Name         string          `json:"name"`
+		Type         string          `json:"type"`
+		Value        json.RawMessage `json:"value"`
+		DisplayValue string          `json:"displayValue"`
+	}
+	var raw rawStandingStat
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	stat.Name = raw.Name
+	stat.Type = raw.Type
+	stat.DisplayValue = raw.DisplayValue
+	stat.Value = 0
+	if len(raw.Value) == 0 || string(raw.Value) == "null" {
+		return nil
+	}
+	var number float64
+	if err := json.Unmarshal(raw.Value, &number); err == nil {
+		stat.Value = number
+		return nil
+	}
+	var text string
+	if err := json.Unmarshal(raw.Value, &text); err != nil {
+		return nil
+	}
+	text = strings.TrimSpace(text)
+	if text == "" || text == "-" {
+		return nil
+	}
+	if parsed, err := strconv.ParseFloat(text, 64); err == nil {
+		stat.Value = parsed
+	}
+	return nil
+}
+
 type standingsRow struct {
 	Position  int
 	Name      string

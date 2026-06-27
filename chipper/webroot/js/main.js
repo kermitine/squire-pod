@@ -7,7 +7,7 @@ let reminderCounter = 0;
 let productivityImageLibrary = [];
 
 // VERSION REMINDER: Increment this for every repository change (V1, V2, ...).
-const ROCKET_POD_VERSION = "V43";
+const ROCKET_POD_VERSION = "V45";
 
 const nbaTeams = [
   ["ATL", "Atlanta Hawks"], ["BOS", "Boston Celtics"], ["BKN", "Brooklyn Nets"],
@@ -534,7 +534,8 @@ function collectNBAConfigData() {
     favorite_teams: Array.from(getE("nbaFavoriteTeams").selectedOptions).map(option => option.value),
     pregame_minutes: parseInt(getE("nbaPregameMinutes").value) || 15,
     live_update_minutes: parseInt(getE("nbaLiveUpdateMinutes").value) || 5,
-    notify_final: getE("nbaNotifyFinal").checked
+    notify_final: getE("nbaNotifyFinal").checked,
+    notify_notable: getE("nbaNotifyNotable").checked
   };
 }
 
@@ -588,6 +589,7 @@ function collectF1ConfigData() {
     notify_final: getE("f1NotifyFinal").checked,
     notify_qualifying: getE("f1NotifyQualifying").checked,
     notify_practice: getE("f1NotifyPractice").checked,
+    notify_notable: getE("f1NotifyNotable").checked,
     allowed_start: getE("f1AllowedStart").value || "08:00",
     allowed_end: getE("f1AllowedEnd").value || "22:00"
   };
@@ -1012,6 +1014,7 @@ function updateProductivityAPI() {
               getE("nbaPregameMinutes").value = nba.pregame_minutes || 15;
               getE("nbaLiveUpdateMinutes").value = nba.live_update_minutes || 5;
               getE("nbaNotifyFinal").checked = nba.notify_final !== false;
+              getE("nbaNotifyNotable").checked = nba.notify_notable === true;
               populateNBATeamSelect(nba.favorite_teams || []);
               toggleNBASettings();
 
@@ -1024,6 +1027,7 @@ function updateProductivityAPI() {
               getE("f1NotifyFinal").checked = f1.notify_final !== false;
               getE("f1NotifyQualifying").checked = f1.notify_qualifying !== false;
               getE("f1NotifyPractice").checked = f1.notify_practice === true;
+              getE("f1NotifyNotable").checked = f1.notify_notable === true;
               getE("f1AllowedStart").value = f1.allowed_start || "08:00";
               getE("f1AllowedEnd").value = f1.allowed_end || "22:00";
               toggleF1Settings();

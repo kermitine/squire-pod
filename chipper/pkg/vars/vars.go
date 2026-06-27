@@ -163,6 +163,7 @@ type NBAConfig struct {
 	PregameMinutes    int      `json:"pregame_minutes"`
 	LiveUpdateMinutes int      `json:"live_update_minutes"`
 	NotifyFinal       bool     `json:"notify_final"`
+	NotifyNotable     bool     `json:"notify_notable"`
 }
 
 type F1Config struct {
@@ -174,6 +175,7 @@ type F1Config struct {
 	NotifyFinal                 bool   `json:"notify_final"`
 	NotifyQualifying            bool   `json:"notify_qualifying"`
 	NotifyPractice              bool   `json:"notify_practice"`
+	NotifyNotable               bool   `json:"notify_notable"`
 	AllowedStart                string `json:"allowed_start"`
 	AllowedEnd                  string `json:"allowed_end"`
 }
